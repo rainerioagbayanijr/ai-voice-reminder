@@ -15,7 +15,22 @@ Defaults are `input_mode=csv` and `mode=preview`. No Meta account is needed for 
 3. Execute the entire workflow from **Start WhatsApp Test**. Leave **Demo Settings** at its defaults.
 4. Open **Preview Complete** to inspect/download its `audio` binary. The recording also appears in the host `previews` folder as `whatsapp-<execution-id>-<customer-id>.mp3`.
 
-Rain from AMG and ABC Bank are fictional demo identities, configurable in Demo Settings as `agent_name` and `bank_name`. In CSV mode, each row supplies the customer name and due date; the configured agent and bank override CSV institution/agent values for this test. The spoken date uses explicit English words, such as “November fifteenth, two thousand twenty-six.” Preview before sending to review pronunciation. All three language templates still use the supported `{due_date}` placeholder; only voice speech expands its digits into words.
+Rain from Test Company and Test Bank are fictional demo identities, configurable in Demo Settings as `agent_name` and `bank_name`. In CSV mode, each row supplies the customer name and due date; the configured agent and bank override CSV institution/agent values for this test. The spoken date uses explicit English words, such as “November fifteenth, two thousand twenty-six.” Preview before sending to review pronunciation. All three language templates still use the supported `{due_date}` placeholder; only voice speech expands its digits into words.
+
+## Edit the spoken message
+
+The current opening is:
+
+> Hi, this is Rain from Test Company. Calling from Test Bank, regarding your payment due on November fifteenth, two thousand twenty-six.
+
+The following line addresses each customer by their CSV first name. Plain company and bank names replaced the acronym examples after listening feedback; a full stop provides a pause after the agency introduction.
+
+- **Company and bank:** edit `agent_name` and `bank_name` in Demo Settings. The current agent field includes both the agent and company: `Rain from Test Company`.
+- **Customer name and date:** edit `data/customers.csv` in CSV mode. `first_name` and `due_date` in Demo Settings apply only to single mode.
+- **Sentence wording:** edit `app/templates/fil/voice.txt`, preserve its placeholders, and run `docker compose up -d --build --wait tts-service`.
+- **After a CLI workflow import:** refresh n8n before editing or executing, so the browser loads the saved configuration.
+
+Preview files persist in the host `previews` folder. Send mode uploads audio to Meta; it does not also save a copy in that project folder. n8n handles transient binary data in its persistent volume, subject to cleanup.
 
 CSV rows are validated in Python, independently. Valid email syntax remains required by the shared customer schema, although CSV email and phone are never delivery destinations in this workflow. Duplicate customer IDs and due dates are skipped within a batch. Batch size is limited to 1,000 rows. CSV input can later be replaced by a CRM node producing the same rows.
 
@@ -60,8 +75,8 @@ Do not put the token in Demo Settings, source control, a chat message, a URL, or
    | `mode` | `"send"` |
    | `input_mode` | `"csv"` for the CSV batch, or `"single"` for one sample |
    | `first_name` | Sample name used only in single mode, such as `"Alex"` |
-   | `agent_name` | `"Rain from AMG"` for this demo |
-   | `bank_name` | `"ABC Bank"` for this demo |
+   | `agent_name` | `"Rain from Test Company"` for this demo |
+   | `bank_name` | `"Test Bank"` for this demo |
    | `due_date` | Single-mode date in `YYYY-MM-DD`; CSV mode uses each row’s due date |
    | `test_recipient` | Your verified number, including country code; digits, optionally a leading `+`; no spaces |
    | `phone_number_id` | The Meta test sender's Phone Number ID, as a JSON string |
@@ -113,14 +128,21 @@ Actual n8n upload/send transport tests with local mock endpoints:
 
 The harness starts disposable n8n/mock containers on a Docker network with **no internet route**. It tests multipart MP3 transfer, exact recipient routing, preview, upload failure, TTS failure, send failure, lost acknowledgement, and expired-window rejection. Fixture audio is deliberately not playable; it proves transport only. It uses no real Meta credentials and cleans up its own containers/network. The ordinary n8n and email workflow are not modified by the test harness.
 
-A live preview in the ordinary n8n instance verifies the real speech endpoint separately. **Actual WhatsApp delivery remains unverified until you create the Meta test resources and select your token.**
+A live preview in the ordinary n8n instance verifies the real speech endpoint separately. Live receipt was confirmed during the original Meta test-number demonstration. Automated CSV submission tests use mock Meta endpoints; confirm receipt on your configured phone when testing your own saved token.
 
-Measured on 16 October 2026:
+Initial single-customer measurements on 16 October 2026:
 
 - 24 WhatsApp guard/contract tests passed. The full Python suite had 62 passes and 12 database-test skips because no test database URL was supplied; application/database code was unchanged.
 - All 7 actual-n8n mock scenarios passed on the isolated network, including lost acknowledgement and expired-window rejection. The test containers and network were removed afterward.
 - The separate workflow imported successfully into n8n 2.43.6 without a Meta credential. Its real preview execution finished at **Preview Complete**, produced `previews/whatsapp-8.mp3` (148,896 bytes, valid MP3 header), and executed neither upload nor send node.
 - The normal API, n8n and PostgreSQL services stayed healthy. The email workflow, its credentials, CSV and environment settings were not changed by this addition.
+
+Current CSV and spoken-wording checks on 16 October 2026:
+
+- The full suite passed 81 tests, with 12 database tests skipped because no test database URL was supplied. Ruff passed.
+- Nine isolated n8n transport scenarios passed during CSV integration, including distinct customer names/dates, unique preview filenames, fixed test-recipient routing and invalid/ineligible/duplicate skips.
+- With the final Test Company / Test Bank wording, the real n8n CSV preview produced four fresh MP3s for Juan, Maria, Ana and Luis and skipped three rows. No Meta send node ran during that preview.
+- The exact rendered opening and English date words were checked through `/api/v1/voice/preview`. Byte, script and transport checks do not replace listening review.
 
 ## Financial-services scope
 

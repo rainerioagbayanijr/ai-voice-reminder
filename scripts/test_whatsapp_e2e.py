@@ -259,7 +259,7 @@ def main():
                     "2026-11-18",
                 ]
                 assert all(
-                    r["agent_name"] == "Rain from AMG" and r["bank_name"] == "ABC Bank"
+                    r["agent_name"] == "Rain from Test Company" and r["bank_name"] == "Test Bank"
                     for r in captured["tts_requests"]
                 )
                 if preview:

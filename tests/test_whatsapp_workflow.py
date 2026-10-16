@@ -46,7 +46,7 @@ def test_preview_without_meta_account():
     result = execute_code("whatsapp_validate.js", CONFIG)["result"]["json"]
     assert result["mode"] == "preview"
     assert result["test_recipient"] == ""
-    assert result["voice_request"]["bank_name"] == "ABC Bank"
+    assert result["voice_request"]["bank_name"] == "Test Bank"
 
 
 def test_verified_recipient_and_fictional_voice(live_config):
@@ -54,22 +54,22 @@ def test_verified_recipient_and_fictional_voice(live_config):
     assert result["test_recipient"] == "639171234567"
     assert result["voice_request"]["first_name"] == "Alex"
     assert result["voice_request"]["customer_id"] == "WHATSAPP-DEMO"
-    assert result["voice_request"]["agent_name"] == "Rain from AMG"
+    assert result["voice_request"]["agent_name"] == "Rain from Test Company"
 
 
 def test_demo_settings_supply_all_spoken_identity_values(live_config):
     live_config.update(
         first_name="Juan",
-        agent_name="Rain from AMG",
-        bank_name="ABC Bank",
+        agent_name="Rain from Test Company",
+        bank_name="Test Bank",
         due_date="2026-12-01",
     )
     request = execute_code("whatsapp_validate.js", live_config)["result"]["json"]["voice_request"]
     assert request == {
         "customer_id": "WHATSAPP-DEMO",
         "first_name": "Juan",
-        "agent_name": "Rain from AMG",
-        "bank_name": "ABC Bank",
+        "agent_name": "Rain from Test Company",
+        "bank_name": "Test Bank",
         "due_date": "2026-12-01",
     }
 
@@ -82,7 +82,7 @@ def test_demo_settings_supply_all_spoken_identity_values(live_config):
         ("mode", True),
         ("first_name", "<speak>Hi</speak>"),
         ("agent_name", ""),
-        ("bank_name", "<speak>ABC Bank</speak>"),
+        ("bank_name", "<speak>Test Bank</speak>"),
         ("due_date", "11/15/2026"),
         ("test_recipient", "09171234567"),
         ("test_recipient", "639171234567,639172222222"),

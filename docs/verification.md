@@ -1,4 +1,16 @@
-# Implementation verification — 15 October 2026
+# Implementation verification
+
+## Current prototype status on 16 October 2026
+
+- The WhatsApp test workflow now reads the seven-row fictional CSV and generates separate recordings for Juan, Maria, Ana and Luis. One invalid row, one ineligible row and one duplicate are skipped. All sends use the configured verified test phone; CSV phone numbers are ignored.
+- The final opening uses Rain from Test Company and Test Bank, with a sentence pause between the company and bank. Filipino speech dates are written as explicit English words; email dates retain English month names and digits.
+- The final wording passed the 81-test suite and Ruff. Twelve database integration tests were explicitly skipped because no test database URL was supplied; the original database checks below remain historical evidence.
+- Nine isolated n8n scenarios passed during CSV integration. A subsequent live Edge TTS preview with the final wording produced four MP3s and skipped three rows without sending messages.
+- Live receipt in WhatsApp was confirmed during the earlier single-customer demonstration. Current CSV preview checks do not establish inbox delivery or playback for every later execution. See `testing.md` and `whatsapp-test.md` for the measured scope and operator steps.
+
+## Initial email MVP verification on 15 October 2026
+
+The following results describe the original five-row email test fixture and deployment at that time. Later CSV additions, Filipino templates and WhatsApp work are summarized above.
 
 ## Passed
 
@@ -15,12 +27,12 @@
 - Eight concurrent PostgreSQL claim calls yielded one owner; tests verified expired lease recovery, stale-worker fencing, invalid state rejection, terminal acknowledgement replay, and separate dry-run/email identities.
 - The final **normal three-service Compose deployment** (without test overrides) was rebuilt and started healthy on PostgreSQL 17.11. Its original workflow was imported without SMTP credentials and executed successfully through `Complete`: two real MP3 previews (135,648 and 135,936 bytes), two skipped records, and the duplicate suppressed. The normal stack was left running at localhost ports 5678 and 8000 with `DRY_RUN=true`, generated ignored local secrets, and an inactive schedule. The isolated test stack was stopped; its volumes were preserved.
 
-## Not claimed or verified
+## Initial verification limits and continuing boundaries
 
-- No email was sent through an external SMTP account. Credentials were unavailable and unnecessary for local capture tests. Real provider authentication, inbox placement, spam handling, delivery, and playback remain unverified.
+- At the initial verification, no email was sent through an external SMTP account; credentials were unavailable and unnecessary for local capture tests. A later controlled Ethereal test obtained one accepted SMTP submission, while ambiguous attempts were quarantined. SMTP acceptance still does not establish inbox placement, spam handling, delivery or playback.
 - Audio tone/pronunciation was not approved by a human listener. Generated samples are available for listening; byte/header checks do not establish perceptual quality.
 - Edge speech's commercial authorization, enterprise privacy/retention commitments, and suitability for real financial-services data were not established by the successful technical calls. See `tts-and-compliance.md`.
-- No real CRM, customer data, consent/suppression policy, production contact-hour enforcement, WhatsApp or Viber integration was used or implemented.
+- No real CRM, customer data, consent/suppression policy, production contact-hour enforcement or Viber integration was used or implemented. WhatsApp was added later as the owner-only test workflow summarized above.
 - No exactly-once inbox-delivery claim is made. Ambiguous SMTP attempts require reconciliation.
 
 ## Reproduce

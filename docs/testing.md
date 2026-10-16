@@ -43,3 +43,9 @@ After feedback that numeric dates were still spoken in Filipino, Filipino voice 
 The updated suite passed 81 tests; 12 database tests were skipped because no test database URL was supplied. Ruff passed. Nine actual-n8n scenarios passed against a local mock on a Docker network without internet, including a two-customer CSV preview and send batch. The CSV cases verified different names/dates, the configured agent/bank override, distinct preview filenames, one fixed test destination, and invalid/ineligible/duplicate skips. Existing upload/send failure and ambiguous acknowledgement cases still passed.
 
 The normal n8n workflow then processed the real seven-row mock CSV in preview mode using live Edge TTS. It produced four separate MP3s for Juan, Maria, Ana and Luis, and skipped three rows. No WhatsApp send node ran during that preview. The API and normal containers were healthy. Local audio and credentials remain ignored by Git.
+
+### Final company and bank wording
+
+After listening feedback on acronyms, the final demo values became `agent_name=Rain from Test Company` and `bank_name=Test Bank`. The template now puts a full stop after the agency introduction: `Hi, this is Rain from Test Company. Calling from Test Bank, ...`. Customer names still come from CSV and speech dates remain English words.
+
+The full suite passed 81 tests, with 12 database tests skipped; Ruff passed. A fresh actual-n8n CSV preview with these values completed with four nonempty MP3 files and three skipped rows. The script-preview endpoint confirmed the exact opening. Send mode was restored afterward with the other settings and credential references preserved. These checks did not send WhatsApp messages or claim independent acoustic approval.

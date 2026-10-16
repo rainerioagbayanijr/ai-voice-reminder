@@ -41,7 +41,7 @@ def test_filipino_templates_with_english_dates(settings, customer, month, expect
                 else f"{expected} 15, 2026"
             )
             assert expected_date in text
-    assert "calling from" in templates.render("voice", valid.voice_request())
+    assert "calling from" in templates.render("voice", valid.voice_request()).lower()
 
 
 def test_filipino_voice_adapter(settings, voice, monkeypatch):
@@ -66,10 +66,10 @@ def test_filipino_voice_adapter(settings, voice, monkeypatch):
 
 def test_requested_agent_introduction_with_english_date(settings, voice):
     settings.language = "fil"
-    voice.update(agent_name="Rain from AMG", bank_name="ABC Bank")
+    voice.update(agent_name="Rain from Test Company", bank_name="Test Bank")
     script = Templates(settings).render("voice", VoiceRequest(**voice))
     assert script.startswith(
-        "Hi, this is Rain from AMG, calling from ABC Bank "
+        "Hi, this is Rain from Test Company. Calling from Test Bank, "
         "regarding your payment due on November fifteenth, two thousand twenty-six."
     )
     assert "Juan, isang magalang na paalala" in script
