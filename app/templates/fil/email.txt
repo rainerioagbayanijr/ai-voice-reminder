@@ -1,0 +1,11 @@
+Magandang araw, {first_name},
+
+Magalang po naming ipinapaalala ang inyong nalalapit na bayarin na nakatakda sa {due_date}.
+
+Kalakip ng email na ito ang isang maikling mensaheng tinig para sa inyong sanggunian.
+
+Kung mayroon po kayong mga katanungan, makipag-ugnayan lamang sa opisyal na serbisyo sa mga kliyente ng {bank_name}.
+
+Maraming salamat po.
+
+Serbisyo sa mga Kliyente ng {bank_name}

@@ -1,0 +1,874 @@
+{
+  "id": "voiceReminderMvp",
+  "name": "Fictional Voice Payment Reminders",
+  "active": false,
+  "nodes": [
+    {
+      "id": "7d77e38d-7d4e-5d2a-8a09-2c7cc6532089",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e10bc453-3dca-5a61-a3e8-29d3a996c1fa",
+      "name": "Daily at 09 Manila",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "497b8ac3-b51b-5261-829f-de922036024d",
+      "name": "Read customers.csv",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/files/input/customers.csv",
+        "options": {}
+      }
+    },
+    {
+      "id": "bf210f04-a618-54de-9741-ae8589a76a06",
+      "name": "Parse CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "3fd2636a-4dd7-55c7-8d0d-c57fee62ec6f",
+      "name": "Each Customer",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "19285085-5493-5529-affd-5a9493bc2125",
+      "name": "Validate and Claim",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://tts-service:8000/api/v1/reminders/claim",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { row: $json } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "d0bd1d52-44bd-5161-87ab-d4901d4078b3",
+      "name": "Eligible and Claimed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4756db14-e1f3-51e2-a2d1-a7f97ee3728a",
+              "leftValue": "={{ $json.proceed === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2cd00254-0389-5b30-9018-c749bf3b98ea",
+      "name": "Generate Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://tts-service:8000/api/v1/voice/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.voice_request }}",
+        "options": {
+          "timeout": 55000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "audio"
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cede28d4-b976-54bf-9f57-256cbff76638",
+      "name": "Audio Generated",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "68189358-d562-54e3-990c-cc65fc00e1f4",
+              "leftValue": "={{ !!$binary?.audio && !$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0dd721c2-0a23-586f-9e3c-1052b87cba60",
+      "name": "Record TTS Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/reminders/' + $('Validate and Claim').item.json.reminder_id + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: $('Validate and Claim').item.json.token, status: 'failed', error_code: 'tts_failed' } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "e7e22377-0eb0-570a-b401-0442f09f0616",
+      "name": "Dry Run",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "127beda6-ec08-5eb9-81de-d8295feee0d5",
+              "leftValue": "={{ $('Validate and Claim').item.json.dry_run === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "67ea51d6-bd5f-520d-bdc5-99be6c646ada",
+      "name": "Save MP3 Preview",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        -300
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/files/previews/' + $('Validate and Claim').item.json.reminder_id + '.mp3' }}",
+        "dataPropertyName": "audio",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e85d0319-7845-598e-86fb-5713b2db3c18",
+      "name": "Preview Saved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2200,
+        -300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "244bc6a4-f796-5b5e-ab73-ddb34b3295bc",
+              "leftValue": "={{ !$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ece95f30-efec-5501-b262-cdcf4cfa160e",
+      "name": "Record Dry Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        -400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/reminders/' + $('Validate and Claim').item.json.reminder_id + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: $('Validate and Claim').item.json.token, status: 'dry_run' } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "3a8e703e-7cab-538f-8439-96817c9b7c35",
+      "name": "Record Preview Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        -200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/reminders/' + $('Validate and Claim').item.json.reminder_id + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: $('Validate and Claim').item.json.token, status: 'failed', error_code: 'preview_failed' } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "bbe63a1b-7730-5fe2-a949-a8a732fa7efd",
+      "name": "Reserve SMTP Submission",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/reminders/' + $('Validate and Claim').item.json.reminder_id + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: $('Validate and Claim').item.json.token, status: 'submitting' } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "7217bf4c-22a4-574d-9e97-fc700273c0f1",
+      "name": "Restore Audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: $('Validate and Claim').item.json, binary: $('Generate Audio').item.binary };"
+      }
+    },
+    {
+      "id": "09d9a2e8-cc6f-532b-b310-115a3eda51f7",
+      "name": "Send Test Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2420,
+        0
+      ],
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "={{ $json.sender }}",
+        "toEmail": "={{ $json.recipient }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {
+          "fileAttachments": "audio",
+          "appendAttribution": false
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": false
+    },
+    {
+      "id": "a8c94248-d08a-5996-b8fd-49bc4f4b1c0c",
+      "name": "SMTP Accepted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "98d48b82-26d9-5526-9b1e-98c0334e418f",
+              "leftValue": "={{ !$json.error && Array.isArray($json.accepted) && $json.accepted.includes($('Validate and Claim').item.json.recipient) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5ce91302-7898-5130-8c2c-8f8d28edbf6b",
+      "name": "Record Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        -100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/reminders/' + $('Validate and Claim').item.json.reminder_id + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: $('Validate and Claim').item.json.token, status: 'sent' } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "1096dae5-45ca-5e0c-9d78-54b4c6ad683c",
+      "name": "Record SMTP Uncertain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/reminders/' + $('Validate and Claim').item.json.reminder_id + '/status' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: $('Validate and Claim').item.json.token, status: 'unknown', error_code: 'smtp_uncertain' } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "903923ee-c759-5c3f-9d97-18c75b20112b",
+      "name": "Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        880,
+        -180
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read customers.csv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily at 09 Manila": {
+      "main": [
+        [
+          {
+            "node": "Read customers.csv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read customers.csv": {
+      "main": [
+        [
+          {
+            "node": "Parse CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CSV": {
+      "main": [
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Claim": {
+      "main": [
+        [
+          {
+            "node": "Eligible and Claimed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Audio": {
+      "main": [
+        [
+          {
+            "node": "Audio Generated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save MP3 Preview": {
+      "main": [
+        [
+          {
+            "node": "Preview Saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve SMTP Submission": {
+      "main": [
+        [
+          {
+            "node": "Restore Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Audio": {
+      "main": [
+        [
+          {
+            "node": "Send Test Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Test Email": {
+      "main": [
+        [
+          {
+            "node": "SMTP Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Each Customer": {
+      "main": [
+        [
+          {
+            "node": "Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate and Claim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eligible and Claimed": {
+      "main": [
+        [
+          {
+            "node": "Generate Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio Generated": {
+      "main": [
+        [
+          {
+            "node": "Dry Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record TTS Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry Run": {
+      "main": [
+        [
+          {
+            "node": "Save MP3 Preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserve SMTP Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preview Saved": {
+      "main": [
+        [
+          {
+            "node": "Record Dry Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Preview Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMTP Accepted": {
+      "main": [
+        [
+          {
+            "node": "Record Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record SMTP Uncertain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record TTS Failure": {
+      "main": [
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Dry Run": {
+      "main": [
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Preview Failure": {
+      "main": [
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Sent": {
+      "main": [
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record SMTP Uncertain": {
+      "main": [
+        [
+          {
+            "node": "Each Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila",
+    "executionTimeout": 3600
+  },
+  "pinData": {},
+  "versionId": "db8edeb8-e966-522e-81a8-da386ea6aca9",
+  "tags": []
+}

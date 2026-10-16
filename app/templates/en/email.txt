@@ -1,0 +1,11 @@
+Hello {first_name},
+
+This is a friendly reminder regarding your upcoming payment due date.
+
+We have attached a short voice message for your reference.
+
+If you have any questions, please contact us through the official customer service channels of {bank_name}.
+
+Thank you.
+
+{bank_name} Customer Support

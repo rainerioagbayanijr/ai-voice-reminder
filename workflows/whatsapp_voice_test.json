@@ -1,0 +1,507 @@
+{
+  "id": "whatsappVoiceTestMvp",
+  "name": "WhatsApp Voice Reminder - Test Only",
+  "active": false,
+  "nodes": [
+    {
+      "id": "65038dcc-c910-53fd-b011-c4f45d178d06",
+      "name": "Start WhatsApp Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "0f0adec3-3663-5faa-9360-e796ff57b89b",
+      "name": "Demo Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"mode\": \"preview\",\n  \"first_name\": \"Alex\",\n  \"test_recipient\": \"\",\n  \"phone_number_id\": \"\",\n  \"graph_api_version\": \"\",\n  \"last_hello_at_utc\": \"\",\n  \"meta_test_number_confirmed\": false,\n  \"recipient_verified\": false\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "e4c5dda2-047b-5d7a-bf42-afbaebf6f274",
+      "name": "Validate Demo Setup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// One fictional sample and one operator-verified Meta test recipient per manual run.\nconst config = $json;\nif (!['preview', 'send'].includes(config.mode)) {\n  throw new Error('Mode must be preview or send. Start with preview.');\n}\nif (typeof config.first_name !== 'string' ||\n    !/^[\\p{L}\\p{M} '\\u2019-]{1,60}$/u.test(config.first_name.trim())) {\n  throw new Error('Enter a sample first name containing letters, spaces, apostrophes or hyphens.');\n}\nconst recipient = typeof config.test_recipient === 'string'\n  ? config.test_recipient.trim().replace(/^\\+/, '') : '';\nif (config.mode === 'send') {\n  if (config.meta_test_number_confirmed !== true || config.recipient_verified !== true) {\n    throw new Error('Confirm the sender is Meta\\'s developer test number and the recipient is your own verified, allowlisted phone.');\n  }\n  if (!/^[1-9][0-9]{7,14}$/.test(recipient)) {\n    throw new Error('Set test_recipient to your verified WhatsApp phone with country code, without spaces.');\n  }\n  if (typeof config.phone_number_id !== 'string' || !/^[0-9]{5,32}$/.test(config.phone_number_id)) {\n    throw new Error('Copy the Phone Number ID from Meta API Setup. This is an ID, not the displayed phone number.');\n  }\n  if (typeof config.graph_api_version !== 'string' ||\n      !/^v[0-9]{2,3}\\.0$/.test(config.graph_api_version)) {\n    throw new Error('Copy the Graph API version from the sample request in your Meta dashboard, such as vXX.0.');\n  }\n  if (typeof config.last_hello_at_utc !== 'string' ||\n      !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/.test(config.last_hello_at_utc)) {\n    throw new Error('Send Hello from your verified phone first, then enter its actual UTC time in last_hello_at_utc.');\n  }\n  const age = Date.now() - Date.parse(config.last_hello_at_utc);\n  if (!Number.isFinite(age) || age < 0 || age >= 24 * 60 * 60 * 1000 - 120000) {\n    throw new Error('The recorded Hello is invalid, in the future, or too close to/outside the 24-hour reply window. Send a fresh Hello.');\n  }\n}\nreturn { json: {\n  mode: config.mode,\n  test_recipient: recipient,\n  phone_number_id: config.phone_number_id,\n  graph_api_version: config.graph_api_version,\n  last_hello_at_utc: config.last_hello_at_utc,\n  voice_request: {\n    customer_id: 'WHATSAPP-DEMO',\n    first_name: config.first_name.trim(),\n    bank_name: 'Demo Bank, a fictional test institution',\n    agent_name: 'the test assistant',\n    due_date: '2026-11-15'\n  }\n}};\n"
+      }
+    },
+    {
+      "id": "1d2781b1-df9d-54c5-9259-a55800dc3496",
+      "name": "Generate Demo MP3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://tts-service:8000/api/v1/voice/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.voice_request }}",
+        "options": {
+          "timeout": 55000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "audio"
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ac5eb640-f0ec-5842-a832-fe568be2b98a",
+      "name": "MP3 Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ac5eb640-f0ec-5842-a832-fe568be2b98a",
+              "leftValue": "={{ !!$binary?.audio && !$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5d220d9c-a454-5806-beee-59aa53ab8469",
+      "name": "TTS Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        280
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: {channel:'whatsapp',status:'failed',stage:'tts',send_attempted:false,next_step:'Inspect Generate Demo MP3. No WhatsApp message was attempted.'} };"
+      }
+    },
+    {
+      "id": "fd285e0d-111b-5fa8-a3eb-e9f7f1c260bb",
+      "name": "Preview Only",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd285e0d-111b-5fa8-a3eb-e9f7f1c260bb",
+              "leftValue": "={{ $('Validate Demo Setup').item.json.mode === 'preview' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1f83a2a2-a4cf-5903-a8ee-9b02ac8438c6",
+      "name": "Save WhatsApp Preview",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        -300
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/files/previews/whatsapp-' + $execution.id + '.mp3' }}",
+        "dataPropertyName": "audio",
+        "options": {}
+      }
+    },
+    {
+      "id": "06d0bdf8-21d7-5960-99ce-c018d9d68355",
+      "name": "Preview Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: {channel:'whatsapp',status:'preview',file:$json.fileName,send_attempted:false,next_step:'Play the MP3. Set up Meta test credentials before selecting send mode.'},binary:$binary };"
+      }
+    },
+    {
+      "id": "144758ce-c429-5165-a7a8-9fa2d9819c96",
+      "name": "Upload MP3 to Meta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/' + $('Validate Demo Setup').item.json.graph_api_version + '/' + $('Validate Demo Setup').item.json.phone_number_id + '/media' }}",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "type",
+              "value": "audio/mpeg"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "audio"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ed3094b4-78d5-5abf-96fc-c9dad5b0a818",
+      "name": "Upload Accepted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ed3094b4-78d5-5abf-96fc-c9dad5b0a818",
+              "leftValue": "={{ !$json.error && typeof $json.id === 'string' && /^[0-9]{1,64}$/.test($json.id) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c78c9caa-4a4f-5458-a26b-04b3440c3e38",
+      "name": "Upload Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: {channel:'whatsapp',status:'failed',stage:'upload',send_attempted:false,next_step:'Inspect Upload MP3 to Meta and check the token, API version and Phone Number ID.'} };"
+      }
+    },
+    {
+      "id": "ca444e59-ef56-59bc-99ff-1598a31c162f",
+      "name": "Check Window and Prepare Audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Recheck after synthesis/upload; neither TTS nor the upload opens a reply window.\nconst config = $('Validate Demo Setup').item.json;\nconst age = Date.now() - Date.parse(config.last_hello_at_utc);\nif (!Number.isFinite(age) || age < 0 || age >= 24 * 60 * 60 * 1000 - 30000) {\n  throw new Error('Reply window expired during preparation. No send was attempted. Send a fresh Hello and run again.');\n}\nif (typeof $json.id !== 'string' || !/^[0-9]{1,64}$/.test($json.id)) {\n  throw new Error('Meta did not return a valid uploaded media ID. No send was attempted.');\n}\nreturn { json: {\n  messaging_product: 'whatsapp',\n  recipient_type: 'individual',\n  to: config.test_recipient,\n  type: 'audio',\n  audio: { id: $json.id }\n}};\n"
+      }
+    },
+    {
+      "id": "d4614c75-4383-5f34-a0e5-4c727a107cc7",
+      "name": "Send WhatsApp Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/' + $('Validate Demo Setup').item.json.graph_api_version + '/' + $('Validate Demo Setup').item.json.phone_number_id + '/messages' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "497d1cab-92aa-5c95-9e4c-2848aaed5d21",
+      "name": "WhatsApp Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// API acceptance is not a delivery/read receipt. Never retry an ambiguous send.\nconst response = $json;\nconst messageId = response.messages?.[0]?.id;\nconst accepted = !response.error && typeof messageId === 'string' && messageId.startsWith('wamid.');\nreturn { json: {\n  channel: 'whatsapp',\n  status: accepted ? 'submitted' : 'unknown',\n  message_id: accepted ? messageId : null,\n  automatic_retry: false,\n  next_step: accepted\n    ? 'Check your verified test phone. Meta accepted this message; delivery and playback are not confirmed.'\n    : 'Inspect the Send WhatsApp Audio node and your test phone before any manual retry. Submission may have succeeded.'\n}};\n"
+      }
+    },
+    {
+      "id": "37130ec0-50ad-5806-a366-e873b1a2c61b",
+      "name": "Read Me - Test Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -480
+      ],
+      "parameters": {
+        "content": "## WhatsApp Voice Test\n\nDefault: **preview**. Run now to save an MP3.\n\nFor live testing, follow **docs/whatsapp-test.md**. Use Meta's supplied test sender and your own verified recipient. Send Hello first, then enter its UTC time in Demo Settings.\n\nSelect the same Header Auth credential on Upload and Send: `Authorization: Bearer <token>`. Never paste the token into Demo Settings.\n\nManual test only. No automatic inbound trigger, schedule, paid provider, or customer CSV. `submitted` means API accepted, not delivered. Each send-mode run is a new attempt; don't rerun an unknown result blindly.",
+        "width": 660,
+        "height": 380
+      }
+    }
+  ],
+  "connections": {
+    "Start WhatsApp Test": {
+      "main": [
+        [
+          {
+            "node": "Demo Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Demo Settings": {
+      "main": [
+        [
+          {
+            "node": "Validate Demo Setup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Demo Setup": {
+      "main": [
+        [
+          {
+            "node": "Generate Demo MP3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Demo MP3": {
+      "main": [
+        [
+          {
+            "node": "MP3 Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save WhatsApp Preview": {
+      "main": [
+        [
+          {
+            "node": "Preview Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload MP3 to Meta": {
+      "main": [
+        [
+          {
+            "node": "Upload Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Window and Prepare Audio": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Audio": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MP3 Ready": {
+      "main": [
+        [
+          {
+            "node": "Preview Only",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TTS Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preview Only": {
+      "main": [
+        [
+          {
+            "node": "Save WhatsApp Preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upload MP3 to Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Accepted": {
+      "main": [
+        [
+          {
+            "node": "Check Window and Prepare Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upload Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Singapore",
+    "executionTimeout": 600
+  },
+  "pinData": {},
+  "tags": [],
+  "versionId": "c60d7efd-c6f9-5041-b4f0-d5399018f555"
+}

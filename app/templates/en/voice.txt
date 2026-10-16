@@ -1,0 +1,4 @@
+Hello {first_name}. This is {agent_name} from {bank_name}.
+This is a friendly reminder about your payment due on {due_date}.
+Please contact our official customer service channels for assistance.
+Thank you.

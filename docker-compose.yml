@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: reminder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: reminders
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U reminder -d reminders']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  tts-service:
+    image: payment-reminder-mvp-tts-service:local
+    build: .
+    environment:
+      REMINDER_API_KEY: ${REMINDER_API_KEY:?Set a random 32+ character API key}
+      DATABASE_URL: postgresql://reminder:${POSTGRES_PASSWORD}@postgres:5432/reminders
+      DRY_RUN: ${DRY_RUN:-true}
+      TEST_RECIPIENT: ${TEST_RECIPIENT:-preview@example.com}
+      TEST_RECIPIENT_VERIFIED: ${TEST_RECIPIENT_VERIFIED:-false}
+      SENDER_EMAIL: ${SENDER_EMAIL:-support@example.com}
+      VOICE: ${VOICE:-en-US-JennyNeural}
+      ALLOWED_VOICES: ${ALLOWED_VOICES:-en-US-JennyNeural,en-US-AriaNeural}
+      LANGUAGE: ${LANGUAGE:-en}
+      RATE: ${RATE:--15%}
+      VOLUME: ${VOLUME:--5%}
+    ports:
+      - '127.0.0.1:8000:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.43.6
+    ports:
+      - '127.0.0.1:5678:5678'
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set a random encryption key}
+      REMINDER_API_KEY: ${REMINDER_API_KEY}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
+      N8N_RESTRICT_FILE_ACCESS_TO: /files
+      N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      N8N_PERSONALIZATION_ENABLED: 'false'
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: none
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: 'false'
+      EXECUTIONS_DATA_PRUNE: 'true'
+      EXECUTIONS_DATA_MAX_AGE: '24'
+      GENERIC_TIMEZONE: Asia/Manila
+      TZ: Asia/Manila
+      N8N_SECURE_COOKIE: 'false'
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./data:/files/input:ro
+      - ./previews:/files/previews
+      - ./workflows:/workflows:ro
+    depends_on:
+      tts-service:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  n8n_data:

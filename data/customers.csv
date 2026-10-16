@@ -1,0 +1,8 @@
+customer_id,first_name,email,phone,bank_name,agent_name,due_date,reminder_eligible
+CUST001,Juan,juan@example.com,+639171111111,Example Fictional Bank,Alex,2026-11-15,true
+CUST002,Maria,maria@example.com,+639172222222,Example Fictional Bank,Alex,2026-11-18,true
+CUST003,Pedro,pedro@example.com,+639173333333,Example Fictional Bank,Alex,2026-11-20,false
+CUST004,Invalid,not-an-email,,Example Fictional Bank,Alex,2026-11-20,true
+CUST001,Juan,juan@example.com,+639171111111,Example Fictional Bank,Alex,2026-11-15,true
+TEST001,Ana,ana@example.com,,Example Fictional Bank,Alex,2026-11-25,true
+TEST002,Ana,ana@example.com,,Example Fictional Bank,Alex,2026-11-25,true
