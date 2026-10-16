@@ -11,7 +11,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
-from app.models import ClaimRequest, TransitionRequest, VoiceRequest
+from app.models import ClaimRequest, CustomerBatchRequest, TransitionRequest, VoiceRequest
+from app.services.customers import prepare_customer_batch
 from app.services.templates import Templates
 from app.services.tracking import StateConflict, TrackingStore
 from app.services.tts import TTSBusy, TTSFailure, TTSService
@@ -106,6 +107,10 @@ def create_app(settings: Settings | None = None, *, tts=None, store=None) -> Fas
         return {"status": "ready", "tracking_enabled": store is not None}
 
     auth = [Depends(authorize)]
+
+    @api.post("/api/v1/customers/prepare", dependencies=auth)
+    def prepare_customers(request: CustomerBatchRequest):
+        return {"customers": prepare_customer_batch(request.rows)}
 
     @api.post("/api/v1/voice/preview", dependencies=auth)
     def preview(request: VoiceRequest):

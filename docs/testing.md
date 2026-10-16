@@ -35,3 +35,11 @@ See `verification.md` for the final measured results and remaining external acce
 The updated suite passed 66 tests; 12 database integration tests were skipped because no `TEST_DATABASE_URL` was provided. Ruff passed. New checks cover all three Filipino templates, representative Filipino month names, placeholder substitution, and selection of `fil-PH-BlessicaNeural` with a mocked speech dependency.
 
 The running Compose service was rebuilt with `LANGUAGE=fil` and `VOICE=fil-PH-BlessicaNeural`. A real authenticated API request using fictional details returned HTTP 200, `audio/mpeg`, and a 176,832-byte MP3 saved as an ignored local preview. All normal containers were healthy afterward. No email or WhatsApp message was sent for this language verification; pronunciation and tone require listening review.
+
+### English speech dates and WhatsApp CSV mode
+
+After feedback that numeric dates were still spoken in Filipino, Filipino voice templates were changed to use explicit English words, such as `November fifteenth, two thousand twenty-six`. Email dates remain `November 15, 2026`. A live script-preview request confirmed the exact rendered wording and the Rain from AMG / ABC Bank introduction. Listening review remains necessary; string and transport tests do not establish acoustic quality.
+
+The updated suite passed 81 tests; 12 database tests were skipped because no test database URL was supplied. Ruff passed. Nine actual-n8n scenarios passed against a local mock on a Docker network without internet, including a two-customer CSV preview and send batch. The CSV cases verified different names/dates, the configured agent/bank override, distinct preview filenames, one fixed test destination, and invalid/ineligible/duplicate skips. Existing upload/send failure and ambiguous acknowledgement cases still passed.
+
+The normal n8n workflow then processed the real seven-row mock CSV in preview mode using live Edge TTS. It produced four separate MP3s for Juan, Maria, Ana and Luis, and skipped three rows. No WhatsApp send node ran during that preview. The API and normal containers were healthy. Local audio and credentials remain ignored by Git.

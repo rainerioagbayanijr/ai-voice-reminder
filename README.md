@@ -18,7 +18,7 @@ docker compose up -d --build --wait
 Use hexadecimal database passwords in this Compose configuration; other characters require URL encoding. Never commit `.env`.
 
 1. Open [n8n](http://localhost:5678), create the local owner account, and import `workflows/payment_reminder.json` using **Import from File**.
-2. Keep `DRY_RUN=true`. Execute the whole workflow from **Manual Trigger**. The five-row sample produces two MP3 previews, skips one ineligible and one invalid record, and suppresses the repeated customer. Preview files appear in `previews/` and the n8n binary output. The claim node also shows the exact approved script.
+2. Keep `DRY_RUN=true`. Execute the whole workflow from **Manual Trigger**. The seven-row sample produces four MP3 previews, skips one ineligible and one invalid record, and suppresses the repeated customer. Preview files appear in `previews/` and the n8n binary output. The claim node also shows the exact approved script.
 3. Execute again: completed reminders are skipped. To create another intentional test cycle, use new fictional customer IDs or due dates. Do not erase successful history to bypass duplicates.
 4. Inspect [API docs](http://localhost:8000/docs). API calls require `X-API-Key`; `/health` and `/ready` do not.
 
@@ -34,15 +34,17 @@ Every recipient comes from the API's configured test override. CSV emails are va
 
 ## Separate WhatsApp voice test
 
-Import `workflows/whatsapp_voice_test.json` as **WhatsApp Voice Reminder - Test Only**. It reuses the speech API and runs in **preview mode immediately**, without a Meta account. To send one fictional audio sample to your own verified phone, follow [the Meta test-number setup guide](docs/whatsapp-test.md), select a Header Auth token credential, and switch **Demo Settings** to `send` after sending Hello from your phone.
+Import `workflows/whatsapp_voice_test.json` as **WhatsApp Voice Reminder - Test Only**. It defaults to **CSV input + preview**: n8n reads `data/customers.csv`, validates rows through the API, and generates one MP3 for each eligible, unique customer/due-date pair. The sample produces recordings for Juan, Maria, Ana and Luis; it skips Pedro, the invalid email row, and the repeated CUST001 row.
 
-This is a separate manual workflow: its mode is independent of email `DRY_RUN`, it does not read the customer CSV or send SMTP email, and it has no schedule or automatic inbound trigger. Actual WhatsApp delivery needs your Meta developer test resources. Existing email tracking remains unchanged; this small demo does not implement a durable WhatsApp duplicate ledger. See the guide for safe retry behavior and test results.
+To send the batch to your own verified test phone, follow [the Meta setup guide](docs/whatsapp-test.md) and select `mode=send`. All recordings go to `test_recipient`; CSV phone numbers are never used. **Demo Settings** controls `agent_name` (Rain from AMG) and `bank_name` (ABC Bank). Names and due dates come from CSV. Select `input_mode=single` to use the configured sample customer Alex instead.
+
+This manual workflow has no schedule or automatic inbound trigger. Its mode is independent of email `DRY_RUN`. CSV duplicates are suppressed **within one execution only**; each new send-mode execution is another test batch. There is no durable WhatsApp duplicate ledger. Existing email tracking remains separate. See the guide for safe retry behavior and measured tests.
 
 ## Configuration and templates
 
 - Edit `app/templates/<LANGUAGE>/voice.txt`, `subject.txt`, and `email.txt`, then rebuild the API. Allowed placeholders: `{first_name}`, `{agent_name}`, `{bank_name}`, `{due_date}`. Templates are validated at startup. No arbitrary Python expressions or custom SSML.
 - The supplied `.env.example` selects Filipino: `fil-PH-BlessicaNeural`, `LANGUAGE=fil`, rate `-15%`, volume `-5%`. Existing `.env` files are preserved by setup; edit them explicitly to switch languages. Punctuation provides pauses; perceived tone requires listening and approval. `VOICE`, `ALLOWED_VOICES`, `RATE`, `VOLUME`, and `LANGUAGE` are environment settings. Requests may select only enabled voices. Prosody overrides are bounded to -50% through +20%.
-- English (`en`) and Filipino (`fil`) sample templates ship. To select Filipino in `.env`, set `LANGUAGE=fil`, `VOICE=fil-PH-BlessicaNeural`, and add `fil-PH-BlessicaNeural` to `ALLOWED_VOICES`. Run `docker compose up -d --build --wait tts-service`. Filipino templates use Filipino month names for `{due_date}`. These settings apply to both email and WhatsApp; they do not change recipients or send modes. Voice availability, pronunciation, tone and wording need review before real use; see `docs/tts-and-compliance.md`.
+- English (`en`) and Filipino (`fil`) sample templates ship. To select Filipino in `.env`, set `LANGUAGE=fil`, `VOICE=fil-PH-BlessicaNeural`, and add `fil-PH-BlessicaNeural` to `ALLOWED_VOICES`. Run `docker compose up -d --build --wait tts-service`. Dates are displayed as `November 15, 2026`. In Filipino voice scripts, the date is spelled out as `November fifteenth, two thousand twenty-six` to avoid Filipino number names. The Filipino voice script starts with an English introduction and continues in Filipino. These settings apply to both email and WhatsApp; they do not change recipients or send modes. Voice availability, pronunciation, tone and wording need review before real use; see `docs/tts-and-compliance.md`.
 - `Settings` also accepts `TTS_TIMEOUT_SECONDS` (45), `MAX_CONCURRENCY` (2), `MAX_AUDIO_BYTES` (5 MB), `LEASE_SECONDS` (600), `MAX_ATTEMPTS` (3), and `RETRY_DELAY_SECONDS` (300). Pass these to the API container in Compose if changing them. Concurrency limits apply per API process.
 - To change the CSV, replace `data/customers.csv`; n8n mounts it read-only. Keep the header and ISO dates. `reminder_eligible` accepts only `true`/`false`. `phone` is optional and unused.
 

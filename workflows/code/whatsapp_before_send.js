@@ -1,5 +1,5 @@
 // Recheck after synthesis/upload; neither TTS nor the upload opens a reply window.
-const config = $('Validate Demo Setup').item.json;
+const config = $('Validate Demo Setup').first().json;
 const age = Date.now() - Date.parse(config.last_hello_at_utc);
 if (!Number.isFinite(age) || age < 0 || age >= 24 * 60 * 60 * 1000 - 30000) {
   throw new Error('Reply window expired during preparation. No send was attempted. Send a fresh Hello and run again.');

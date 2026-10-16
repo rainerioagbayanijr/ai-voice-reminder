@@ -4,18 +4,20 @@ Importable file: `workflows/whatsapp_voice_test.json`
 
 n8n name: **WhatsApp Voice Reminder - Test Only**
 
-This workflow generates one fictional personalized recording and, when configured, sends it as an MP3 audio message to your own verified WhatsApp test phone. It reuses the existing FastAPI speech endpoint. It does not use the customer CSV or SMTP, and it does not change the email workflow or its saved credentials.
+This separate workflow reads fictional customers from `data/customers.csv` and generates a personalized recording for each eligible row. All sends are redirected to your own verified WhatsApp test phone. It reuses the existing speech API and CSV mount. It does not use SMTP or alter the email workflow or its credentials.
 
-The default `mode` is `preview`, independent of the email service's `DRY_RUN` setting. No Meta account is needed for preview. Internet is still needed for real Edge TTS.
+Defaults are `input_mode=csv` and `mode=preview`. No Meta account is needed for preview. Internet is needed for real Edge TTS. The current seven-row CSV yields four previews: Juan, Maria, Ana and Luis. One ineligible row, one invalid row and one duplicate are skipped. Set `input_mode=single` to test Alex from Demo Settings instead.
 
 ## Try preview now
 
 1. Start the existing stack with `docker compose up -d --wait`.
 2. Open n8n, import `workflows/whatsapp_voice_test.json`, and open **WhatsApp Voice Reminder - Test Only**. If it was already imported for you, open that workflow instead of importing another copy.
 3. Execute the entire workflow from **Start WhatsApp Test**. Leave **Demo Settings** at its defaults.
-4. Open **Preview Complete** to inspect/download its `audio` binary. The recording also appears in the host `previews` folder as `whatsapp-<execution-id>.mp3`.
+4. Open **Preview Complete** to inspect/download its `audio` binary. The recording also appears in the host `previews` folder as `whatsapp-<execution-id>-<customer-id>.mp3`.
 
-The sample says the institution is fictional. `first_name` in Demo Settings controls the sample name. The fixed fictional due date is 15 November 2026. No real customer information is used.
+Rain from AMG and ABC Bank are fictional demo identities, configurable in Demo Settings as `agent_name` and `bank_name`. In CSV mode, each row supplies the customer name and due date; the configured agent and bank override CSV institution/agent values for this test. The spoken date uses explicit English words, such as “November fifteenth, two thousand twenty-six.” Preview before sending to review pronunciation. All three language templates still use the supported `{due_date}` placeholder; only voice speech expands its digits into words.
+
+CSV rows are validated in Python, independently. Valid email syntax remains required by the shared customer schema, although CSV email and phone are never delivery destinations in this workflow. Duplicate customer IDs and due dates are skipped within a batch. Batch size is limited to 1,000 rows. CSV input can later be replaced by a CRM node producing the same rows.
 
 ## Create the free Meta test resources
 
@@ -27,7 +29,7 @@ Use Meta directly; no Twilio, BSP subscription, paid hosting, or tunnel is requi
 4. Generate the temporary test access token. Copy the **Phone Number ID** and the **Graph API version** shown in Meta's sample request. Phone Number ID is not the displayed test phone number, Business Account ID, or app ID.
 5. Use Meta's sample-message test first. Confirm that it arrives on your phone. If a billing/card prompt appears, stop and verify that you selected the developer test resources; this project does not configure billing or promise a free production number.
 
-Meta advertises [free test numbers and sandbox resources](https://whatsappbusiness.com/developers/developer-hub/). This has not been provisioned or verified on your account. Account availability, recipient limits and token expiry are controlled by Meta. The temporary token may expire; generate a replacement when needed. This test does not require production business verification or production billing to be configured by our code.
+Meta advertises [free test numbers and sandbox resources](https://whatsappbusiness.com/developers/developer-hub/). Live receipt from a Meta test sender was confirmed during the original single-customer demonstration on 16 October 2026; account credentials are not included in this repository. Account availability, recipient limits and token expiry are controlled by Meta. The temporary token may expire; generate a replacement when needed. This test does not require production business verification or production billing to be configured by our code.
 
 ## Save the token securely in n8n
 
@@ -56,7 +58,11 @@ Do not put the token in Demo Settings, source control, a chat message, a URL, or
    | Field | What to enter |
    |---|---|
    | `mode` | `"send"` |
-   | `first_name` | A fictional sample name, such as `"Alex"` |
+   | `input_mode` | `"csv"` for the CSV batch, or `"single"` for one sample |
+   | `first_name` | Sample name used only in single mode, such as `"Alex"` |
+   | `agent_name` | `"Rain from AMG"` for this demo |
+   | `bank_name` | `"ABC Bank"` for this demo |
+   | `due_date` | Single-mode date in `YYYY-MM-DD`; CSV mode uses each row’s due date |
    | `test_recipient` | Your verified number, including country code; digits, optionally a leading `+`; no spaces |
    | `phone_number_id` | The Meta test sender's Phone Number ID, as a JSON string |
    | `graph_api_version` | The version from Meta's sample request, in the form `vXX.0` |
@@ -67,17 +73,17 @@ Do not put the token in Demo Settings, source control, a chat message, a URL, or
    Keep IDs and timestamps in double quotes. Keep booleans unquoted. The empty/default fields intentionally prevent sending until configured.
 
 4. Save and execute the entire workflow from **Start WhatsApp Test**.
-5. The path should be **Generate Demo MP3 → MP3 Ready → Preview Only (false) → Upload MP3 to Meta → Upload Accepted → Check Window and Prepare Audio → Send WhatsApp Audio → WhatsApp Result**.
+5. CSV mode reads and validates the batch, then **Each WhatsApp Customer** processes one row at a time. Eligible rows go through speech, upload and send; skipped rows continue without synthesis. **Batch Complete** lists per-customer outcomes and counts.
 6. `WhatsApp Result.status = submitted` with a `wamid...` message ID means Meta accepted the request. Check your phone and tap Play. API acceptance does not prove delivery, reading, or playback.
 
 The timestamp and verification flags are operator attestations; this manual workflow does not independently receive or verify the inbound Hello. The window is checked before synthesis and again after upload, with a small safety margin. Meta remains the authority on whether the actual conversation window is open. Editing the timestamp without sending Hello will not open a Meta reply window.
 
 ## What this test does and does not automate
 
-- One fictional sample goes to exactly the configured recipient per send-mode execution. No CSV/customer batch, production phone, scheduled reminders, or background sending is configured.
+- Each eligible CSV customer produces one message to the configured test phone. The CSV is never used to select recipients. No production phone, scheduled reminders or background sending are configured.
 - Sending Hello does **not** itself trigger this manual workflow. You click Execute afterward. This avoids adding a public HTTPS webhook/tunnel, webhook verification, and another credential setup to the first demo.
 - Upload and TTS requests have bounded retries. **The send request has no automatic retry**, because an interrupted response may conceal an accepted submission.
-- Every manual send-mode run is a fresh attempt. This demo does not use the email reminder ledger or provide its durable duplicate prevention. Do not repeatedly click Execute, run overlapping tests, or rerun the send node alone. If you need automatic inbound triggers, durable idempotency, or delivery webhooks later, implement those as a separate extension.
+- Every manual send-mode run is a fresh batch, including previously tested rows. Duplicate IDs/due dates are suppressed only within that execution. This demo does not use the email reminder ledger or provide its durable duplicate prevention. Do not repeatedly click Execute, run overlapping tests, or rerun the send node alone. If you need automatic inbound triggers, durable idempotency, or delivery webhooks later, implement those as a separate extension.
 - A normal MP3 audio message is sent. It is not a WhatsApp voice call. A specific voice-note bubble/transcription behavior is not promised.
 - Changing `.env`'s email `DRY_RUN` has no effect on this workflow. Change `mode` in **Demo Settings**.
 

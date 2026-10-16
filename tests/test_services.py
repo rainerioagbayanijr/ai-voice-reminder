@@ -21,8 +21,8 @@ def test_customer_and_template(settings, customer):
     assert valid.phone not in script
 
 
-@pytest.mark.parametrize("month,expected", [(1, "Enero"), (11, "Nobyembre"), (12, "Disyembre")])
-def test_filipino_templates_and_localized_dates(settings, customer, month, expected):
+@pytest.mark.parametrize("month,expected", [(1, "January"), (11, "November"), (12, "December")])
+def test_filipino_templates_with_english_dates(settings, customer, month, expected):
     settings.language = "fil"
     customer["due_date"] = f"2026-{month:02d}-15"
     valid = Customer.model_validate(customer)
@@ -35,8 +35,13 @@ def test_filipino_templates_and_localized_dates(settings, customer, month, expec
         assert valid.phone not in text
         if name != "subject":
             assert valid.first_name in text
-            assert f"ika-15 ng {expected} 2026" in text
-    assert "Magandang araw" in templates.render("voice", valid.voice_request())
+            expected_date = (
+                f"{expected} fifteenth, two thousand twenty-six"
+                if name == "voice"
+                else f"{expected} 15, 2026"
+            )
+            assert expected_date in text
+    assert "calling from" in templates.render("voice", valid.voice_request())
 
 
 def test_filipino_voice_adapter(settings, voice, monkeypatch):
@@ -56,7 +61,19 @@ def test_filipino_voice_adapter(settings, voice, monkeypatch):
     service = TTSService(settings, Templates(settings))
     assert asyncio.run(service.generate(VoiceRequest(**voice))) == b"ID3filipino"
     assert calls[0][1] == "fil-PH-BlessicaNeural"
-    assert "ika-15 ng Nobyembre 2026" in calls[0][0]
+    assert "November fifteenth, two thousand twenty-six" in calls[0][0]
+
+
+def test_requested_agent_introduction_with_english_date(settings, voice):
+    settings.language = "fil"
+    voice.update(agent_name="Rain from AMG", bank_name="ABC Bank")
+    script = Templates(settings).render("voice", VoiceRequest(**voice))
+    assert script.startswith(
+        "Hi, this is Rain from AMG, calling from ABC Bank "
+        "regarding your payment due on November fifteenth, two thousand twenty-six."
+    )
+    assert "Juan, isang magalang na paalala" in script
+    assert "Nobyembre" not in script
 
 
 @pytest.mark.parametrize(

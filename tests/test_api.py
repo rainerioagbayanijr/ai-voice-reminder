@@ -120,3 +120,47 @@ def test_database_outage_is_sanitized(settings, customer):
         )
         assert response.status_code == 503
         assert response.json() == {"detail": "Tracking unavailable"}
+
+
+def test_prepare_csv_batch_independent_rows_and_duplicates(settings, customer):
+    rows = [
+        customer,
+        {**customer},
+        {**customer, "customer_id": "C2", "first_name": "Maria"},
+        {**customer, "customer_id": "C3", "reminder_eligible": "false"},
+        {**customer, "customer_id": "C4", "email": "private-invalid-email"},
+    ]
+    with client(settings) as api:
+        assert api.post("/api/v1/customers/prepare", json={"rows": rows}).status_code == 401
+        response = api.post(
+            "/api/v1/customers/prepare",
+            json={"rows": rows},
+            headers=headers(settings),
+        )
+    assert response.status_code == 200
+    items = response.json()["customers"]
+    assert [item["status"] for item in items] == [
+        "eligible",
+        "skipped",
+        "eligible",
+        "skipped",
+        "skipped",
+    ]
+    assert items[1]["reason"] == "duplicate_in_batch"
+    assert items[2]["voice_request"]["first_name"] == "Maria"
+    assert items[3]["reason"] == "ineligible"
+    assert items[4]["reason"] == "invalid_customer"
+    assert "private-invalid-email" not in response.text
+    assert customer["email"] not in response.text
+    assert customer["phone"] not in response.text
+
+
+def test_prepare_csv_batch_limits(settings, customer):
+    with client(settings) as api:
+        for rows in ([], [customer] * 1001):
+            response = api.post(
+                "/api/v1/customers/prepare",
+                json={"rows": rows},
+                headers=headers(settings),
+            )
+            assert response.status_code == 422

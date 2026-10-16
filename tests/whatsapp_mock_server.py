@@ -2,11 +2,15 @@
 
 import base64
 import json
+import sys
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-state = {"mode": "accept", "tts_calls": 0, "uploads": [], "messages": []}
+sys.path.insert(0, "/srv")
+from app.services.customers import prepare_customer_batch  # noqa: E402
+
+state = {"mode": "accept", "tts_calls": 0, "tts_requests": [], "uploads": [], "messages": []}
 AUDIO = b"ID3-whatsapp-transport-fixture"
 
 
@@ -28,13 +32,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         if self.path == "/reset":
-            state.update(mode=json.loads(body)["mode"], tts_calls=0, uploads=[], messages=[])
+            state.update(
+                mode=json.loads(body)["mode"], tts_calls=0, tts_requests=[], uploads=[], messages=[]
+            )
             return self.respond(200, {"ok": True})
+        if self.path == "/customers/prepare":
+            return self.respond(
+                200, {"customers": prepare_customer_batch(json.loads(body)["rows"])}
+            )
         if self.path == "/tts":
             state["tts_calls"] += 1
             if state["mode"] == "tts_fail":
                 return self.respond(502, {"detail": "Test provider failure"})
-            assert json.loads(body)["customer_id"] == "WHATSAPP-DEMO"
+            state["tts_requests"].append(json.loads(body))
             self.send_response(200)
             self.send_header("Content-Type", "audio/mpeg")
             self.send_header("Content-Disposition", 'attachment; filename="payment_reminder.mp3"')

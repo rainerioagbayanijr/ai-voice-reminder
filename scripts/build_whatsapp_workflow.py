@@ -10,8 +10,12 @@ from uuid import NAMESPACE_URL, uuid5
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = {
+    "input_mode": "csv",
     "mode": "preview",
     "first_name": "Alex",
+    "agent_name": "Rain from AMG",
+    "bank_name": "ABC Bank",
+    "due_date": "2026-11-15",
     "test_recipient": "",
     "phone_number_id": "",
     "graph_api_version": "",
@@ -94,6 +98,111 @@ def build_workflow() -> dict:
         0,
     )
     code("Validate Demo Setup", "whatsapp_validate.js", 440, 0)
+    condition("Use CSV Customers", "={{ $json.input_mode === 'csv' }}", 660, 0)
+    node(
+        "Read WhatsApp customers.csv",
+        "readWriteFile",
+        1.1,
+        {
+            "operation": "read",
+            "fileSelector": "/files/input/customers.csv",
+            "options": {},
+        },
+        880,
+        -220,
+    )
+    node(
+        "Parse WhatsApp CSV",
+        "extractFromFile",
+        1.1,
+        {
+            "operation": "csv",
+            "binaryPropertyName": "data",
+            "options": {"headerRow": True},
+        },
+        1100,
+        -220,
+    )
+    node(
+        "Collect CSV Rows",
+        "code",
+        2,
+        {
+            "mode": "runOnceForAllItems",
+            "jsCode": "return [{json:{rows:$input.all().map(item=>item.json)}}];",
+        },
+        1320,
+        -220,
+    )
+    node(
+        "Validate CSV Batch",
+        "httpRequest",
+        4.2,
+        {
+            "method": "POST",
+            "url": "http://tts-service:8000/api/v1/customers/prepare",
+            "sendHeaders": True,
+            "headerParameters": {
+                "parameters": [
+                    {"name": "X-API-Key", "value": "={{ $env.REMINDER_API_KEY }}"},
+                ]
+            },
+            "sendBody": True,
+            "specifyBody": "json",
+            "jsonBody": "={{ $json }}",
+            "options": {"timeout": 30000},
+        },
+        1540,
+        -220,
+        retryOnFail=True,
+        maxTries=3,
+        waitBetweenTries=3000,
+    )
+    node(
+        "Expand Prepared Customers",
+        "code",
+        2,
+        {
+            "mode": "runOnceForAllItems",
+            "jsCode": "return $input.first().json.customers.map("
+            "json=>({json,pairedItem:{item:0}}));",
+        },
+        1760,
+        -220,
+    )
+    node("Each WhatsApp Customer", "splitInBatches", 3, {"batchSize": 1, "options": {}}, 1980, 0)
+    condition("Customer Eligible", "={{ $json.status === 'eligible' }}", 2200, 0)
+    result("Customer Skipped", "return {json:{channel:'whatsapp',...$json}};", 2420, 240)
+    result(
+        "Prepare Voice Request",
+        "const c=$('Validate Demo Setup').first().json;"
+        "return {json:{voice_request:{...$json.voice_request,"
+        "agent_name:c.voice_request.agent_name,bank_name:c.voice_request.bank_name}}};",
+        2420,
+        -100,
+    )
+    result(
+        "Record Customer Outcome",
+        "const v=$('Prepare Voice Request').item.json.voice_request;"
+        "return {json:{...$json,customer_id:v.customer_id,first_name:v.first_name,"
+        "due_date:v.due_date}};",
+        4840,
+        420,
+    )
+    node(
+        "Batch Complete",
+        "code",
+        2,
+        {
+            "mode": "runOnceForAllItems",
+            "jsCode": "const results=$input.all().map(item=>item.json);const counts={};"
+            "for(const r of results)counts[r.status]=(counts[r.status]||0)+1;"
+            "return [{json:{channel:'whatsapp',status:results.length===1?results[0].status:"
+            "'batch_complete',total:results.length,counts,results}}];",
+        },
+        2200,
+        480,
+    )
     node(
         "Generate Demo MP3",
         "httpRequest",
@@ -130,7 +239,10 @@ def build_workflow() -> dict:
         280,
     )
     condition(
-        "Preview Only", "={{ $('Validate Demo Setup').item.json.mode === 'preview' }}", 1100, -100
+        "Preview Only",
+        "={{ $('Validate Demo Setup').first().json.mode === 'preview' }}",
+        1100,
+        -100,
     )
     node(
         "Save WhatsApp Preview",
@@ -138,7 +250,8 @@ def build_workflow() -> dict:
         1.1,
         {
             "operation": "write",
-            "fileName": "={{ '/files/previews/whatsapp-' + $execution.id + '.mp3' }}",
+            "fileName": "={{ '/files/previews/whatsapp-' + $execution.id + '-' + "
+            "$('Prepare Voice Request').item.json.voice_request.customer_id + '.mp3' }}",
             "dataPropertyName": "audio",
             "options": {},
         },
@@ -148,13 +261,16 @@ def build_workflow() -> dict:
     result(
         "Preview Complete",
         "return { json: {channel:'whatsapp',status:'preview',"
-        "file:$json.fileName,send_attempted:false,"
+        "file:$json.fileName,"
+        "customer_id:$('Prepare Voice Request').item.json.voice_request.customer_id,"
+        "first_name:$('Prepare Voice Request').item.json.voice_request.first_name,"
+        "send_attempted:false,"
         "next_step:'Play the MP3. Set up Meta test credentials before selecting send mode.'},"
         "binary:$binary };",
         1540,
         -300,
     )
-    config = "$('Validate Demo Setup').item.json"
+    config = "$('Validate Demo Setup').first().json"
     url = "={{ 'https://graph.facebook.com/' + " + config + ".graph_api_version + '/' + "
     url += config + ".phone_number_id + '/"
     auth = {"authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth"}
@@ -227,15 +343,17 @@ def build_workflow() -> dict:
         "stickyNote",
         1,
         {
-            "content": "## WhatsApp Voice Test\n\nDefault: **preview**. Run now to save an MP3.\n\n"
+            "content": "## WhatsApp Voice Test\n\nDefault: **CSV + preview**. "
+            "Each eligible CSV row gets a recording. All sends use the verified test phone.\n\n"
             "For live testing, follow **docs/whatsapp-test.md**. "
             "Use Meta's supplied test sender and your own verified recipient. "
             "Send Hello first, then enter its UTC time in Demo Settings.\n\n"
             "Select the same Header Auth credential on Upload and Send: "
             "`Authorization: Bearer <token>`. Never paste the token into Demo Settings.\n\n"
-            "Manual test only. No automatic inbound trigger, schedule, paid provider, "
-            "or customer CSV. `submitted` means API accepted, not delivered. "
-            "Each send-mode run is a new attempt; don't rerun an unknown result blindly.",
+            "Edit agent and bank in Demo Settings. CSV supplies customer names and dates. "
+            "Set input_mode=single for Alex only.\n\n"
+            "Manual test only. Duplicate CSV IDs/due dates are skipped within each batch. "
+            "Every send-mode run is a fresh batch; don't rerun unknown results blindly.",
             "width": 660,
             "height": 380,
         },
@@ -245,7 +363,13 @@ def build_workflow() -> dict:
     for source, target in [
         ("Start WhatsApp Test", "Demo Settings"),
         ("Demo Settings", "Validate Demo Setup"),
-        ("Validate Demo Setup", "Generate Demo MP3"),
+        ("Validate Demo Setup", "Use CSV Customers"),
+        ("Read WhatsApp customers.csv", "Parse WhatsApp CSV"),
+        ("Parse WhatsApp CSV", "Collect CSV Rows"),
+        ("Collect CSV Rows", "Validate CSV Batch"),
+        ("Validate CSV Batch", "Expand Prepared Customers"),
+        ("Expand Prepared Customers", "Each WhatsApp Customer"),
+        ("Prepare Voice Request", "Generate Demo MP3"),
         ("Generate Demo MP3", "MP3 Ready"),
         ("Save WhatsApp Preview", "Preview Complete"),
         ("Upload MP3 to Meta", "Upload Accepted"),
@@ -259,6 +383,34 @@ def build_workflow() -> dict:
     connect("Preview Only", "Upload MP3 to Meta", 1)
     connect("Upload Accepted", "Check Window and Prepare Audio", 0)
     connect("Upload Accepted", "Upload Failed", 1)
+    connect("Use CSV Customers", "Read WhatsApp customers.csv", 0)
+    connect("Use CSV Customers", "Each WhatsApp Customer", 1)
+    connect("Each WhatsApp Customer", "Batch Complete", 0)
+    connect("Each WhatsApp Customer", "Customer Eligible", 1)
+    connect("Customer Eligible", "Prepare Voice Request", 0)
+    connect("Customer Eligible", "Customer Skipped", 1)
+    connect("Customer Skipped", "Each WhatsApp Customer")
+    connect("Record Customer Outcome", "Each WhatsApp Customer")
+    for terminal in ("Preview Complete", "TTS Failed", "Upload Failed", "WhatsApp Result"):
+        connect(terminal, "Record Customer Outcome")
+    shifted = {
+        "Generate Demo MP3",
+        "MP3 Ready",
+        "TTS Failed",
+        "Preview Only",
+        "Save WhatsApp Preview",
+        "Preview Complete",
+        "Upload MP3 to Meta",
+        "Upload Accepted",
+        "Upload Failed",
+        "Check Window and Prepare Audio",
+        "Send WhatsApp Audio",
+        "WhatsApp Result",
+    }
+    for item in nodes:
+        if item["name"] in shifted:
+            item["position"][0] += 1980
+            item["position"][1] -= 100
     return {
         "id": "whatsappVoiceTestMvp",
         "name": "WhatsApp Voice Reminder - Test Only",

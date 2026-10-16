@@ -1,4 +1,4 @@
-Magandang araw, {first_name}. Ako po si {agent_name} mula sa {bank_name}.
-Magalang po naming ipinapaalala ang inyong nalalapit na bayarin na nakatakda sa {due_date}.
+Hi, this is {agent_name}, calling from {bank_name} regarding your payment due on {due_date}.
+{first_name}, isang magalang na paalala lamang po ito tungkol sa inyong nalalapit na bayarin.
 Kung mayroon po kayong mga katanungan, makipag-ugnayan lamang sa aming opisyal na serbisyo sa mga kliyente.
 Maraming salamat po. Ingat po kayo.

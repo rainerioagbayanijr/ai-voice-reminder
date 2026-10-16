@@ -1,11 +1,23 @@
 // One fictional sample and one operator-verified Meta test recipient per manual run.
 const config = $json;
+if (!['single', 'csv'].includes(config.input_mode)) {
+  throw new Error('Set input_mode to csv or single in Demo Settings.');
+}
 if (!['preview', 'send'].includes(config.mode)) {
   throw new Error('Mode must be preview or send. Start with preview.');
 }
 if (typeof config.first_name !== 'string' ||
     !/^[\p{L}\p{M} '\u2019-]{1,60}$/u.test(config.first_name.trim())) {
   throw new Error('Enter a sample first name containing letters, spaces, apostrophes or hyphens.');
+}
+for (const field of ['agent_name', 'bank_name']) {
+  if (typeof config[field] !== 'string' || !config[field].trim() ||
+      config[field].trim().length > 100 || /[\p{C}<>]/u.test(config[field])) {
+    throw new Error('Set ' + field + ' in Demo Settings to plain text of 1 to 100 characters.');
+  }
+}
+if (typeof config.due_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(config.due_date)) {
+  throw new Error('Set due_date in Demo Settings using YYYY-MM-DD.');
 }
 const recipient = typeof config.test_recipient === 'string'
   ? config.test_recipient.trim().replace(/^\+/, '') : '';
@@ -33,6 +45,8 @@ if (config.mode === 'send') {
   }
 }
 return { json: {
+  input_mode: config.input_mode,
+  status: 'eligible',
   mode: config.mode,
   test_recipient: recipient,
   phone_number_id: config.phone_number_id,
@@ -41,8 +55,8 @@ return { json: {
   voice_request: {
     customer_id: 'WHATSAPP-DEMO',
     first_name: config.first_name.trim(),
-    bank_name: 'Demo Bank, a fictional test institution',
-    agent_name: 'the test assistant',
-    due_date: '2026-11-15'
+    bank_name: config.bank_name.trim(),
+    agent_name: config.agent_name.trim(),
+    due_date: config.due_date
   }
 }};

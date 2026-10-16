@@ -2,12 +2,9 @@ from string import Formatter
 
 from app.core.config import Settings
 from app.models import VoiceRequest
+from app.services.dates import display_english_date, spoken_english_date
 
 ALLOWED = {"first_name", "bank_name", "agent_name", "due_date"}
-FILIPINO_MONTHS = (
-    "Enero", "Pebrero", "Marso", "Abril", "Mayo", "Hunyo",
-    "Hulyo", "Agosto", "Setyembre", "Oktubre", "Nobyembre", "Disyembre",
-)
 
 
 class Templates:
@@ -30,9 +27,9 @@ class Templates:
         context = customer.model_dump(include=ALLOWED - {"due_date"})
         due = customer.due_date
         context["due_date"] = (
-            f"ika-{due.day} ng {FILIPINO_MONTHS[due.month - 1]} {due.year}"
-            if self.language == "fil"
-            else f"{due:%B} {due.day}, {due.year}"
+            spoken_english_date(due)
+            if name == "voice" and self.language == "fil"
+            else display_english_date(due)
         )
         result = self.templates[name].format_map(context)
         if len(result) > 5000 or (name == "subject" and any(c in result for c in "\r\n")):

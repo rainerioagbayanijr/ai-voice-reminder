@@ -74,3 +74,11 @@ A successful claim returns `proceed=true`, `reminder_id`, `token`, `dry_run`, `v
 Use an actual UUID returned by claim. Allowed status values are `submitting`, `sent`, `failed`, `unknown`, `dry_run`, subject to the documented state machine. `failed` requires `tts_failed` or `preview_failed`; `unknown` requires `smtp_uncertain`. Free-form provider error text is never accepted. A stale/missing token, expired preparation lease, or invalid transition returns 409. Successful acknowledgement returns `{ "status": "..." }`. Tracking/database outages return sanitized 503 responses and halt delivery.
 
 `GET /api/v1/reminders?limit=100` returns recent history (limit 1–1000), excluding ownership tokens and recipient information. Event history is available to operators via PostgreSQL `reminder_events`. No unauthenticated customer data endpoints exist.
+
+## Customer preparation for the WhatsApp CSV test
+
+`POST /api/v1/customers/prepare` requires `X-API-Key` and accepts `{"rows": [...]}` with 1–1,000 CSV row objects using the shared customer schema. It requires no tracking database and makes no speech or delivery requests.
+
+The response is `{"customers": [...]}`, preserving row order. Each valid, eligible row returns `status=eligible`, its row index and customer ID, and a normalized `voice_request`. Other rows return `status=skipped` and one of `invalid_customer`, `ineligible`, or `duplicate_in_batch`. Email addresses, phone numbers and raw validation inputs are excluded from the response. Duplicate identity is customer ID plus due date, within this request only. It is not a durable send ledger.
+
+The WhatsApp workflow overrides the prepared agent/bank with its Demo Settings values, retains each CSV customer's first name and due date, and routes every message to its verified test recipient.

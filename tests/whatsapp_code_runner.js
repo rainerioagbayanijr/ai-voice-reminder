@@ -5,7 +5,7 @@ Date.now = () => input.now;
 const source = fs.readFileSync(input.script, 'utf8');
 const $ = name => {
   if (name !== 'Validate Demo Setup') throw new Error('Unexpected node lookup');
-  return { item: { json: input.config || {} } };
+  return { item: { json: input.config || {} }, first: () => ({ json: input.config || {} }) };
 };
 try {
   const result = new Function('$json', '$', '$binary', source)(input.json, $, {});

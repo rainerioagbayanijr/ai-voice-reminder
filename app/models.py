@@ -84,6 +84,10 @@ class ClaimRequest(BaseModel):
     row: dict[str, Any]
 
 
+class CustomerBatchRequest(BaseModel):
+    rows: list[dict[str, Any]] = Field(min_length=1, max_length=1000)
+
+
 class TransitionRequest(BaseModel):
     token: UUID
     status: Literal["submitting", "sent", "failed", "unknown", "dry_run"]
