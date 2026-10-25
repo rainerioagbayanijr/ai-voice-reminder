@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = {
     "input_mode": "csv",
     "mode": "preview",
+    "routing_mode": "test",
+    "window_source": "manual",
+    "institution_id": "demo-bank",
     "first_name": "Alex",
     "agent_name": "Rain from Test Company",
     "bank_name": "Test Bank",
@@ -140,7 +143,7 @@ def build_workflow() -> dict:
         4.2,
         {
             "method": "POST",
-            "url": "http://tts-service:8000/api/v1/customers/prepare",
+            "url": "http://tts-service:8000/api/v1/whatsapp/customers/prepare",
             "sendHeaders": True,
             "headerParameters": {
                 "parameters": [
@@ -176,8 +179,10 @@ def build_workflow() -> dict:
     result(
         "Prepare Voice Request",
         "const c=$('Validate Demo Setup').first().json;"
-        "return {json:{voice_request:{...$json.voice_request,"
-        "agent_name:c.voice_request.agent_name,bank_name:c.voice_request.bank_name}}};",
+        "const voice={...$json.voice_request,agent_name:c.voice_request.agent_name,"
+        "bank_name:c.voice_request.bank_name};"
+        "return {json:{voice_request:voice,row:{...($json.row||{}),...voice,"
+        "reminder_eligible:true}}};",
         2420,
         -100,
     )
@@ -204,12 +209,12 @@ def build_workflow() -> dict:
         480,
     )
     node(
-        "Generate Demo MP3",
+        "Generate Voice Note",
         "httpRequest",
         4.2,
         {
             "method": "POST",
-            "url": "http://tts-service:8000/api/v1/voice/generate",
+            "url": "http://tts-service:8000/api/v1/voice/generate?audio_format=ogg_opus",
             "sendHeaders": True,
             "headerParameters": {
                 "parameters": [{"name": "X-API-Key", "value": "={{ $env.REMINDER_API_KEY }}"}]
@@ -218,7 +223,7 @@ def build_workflow() -> dict:
             "specifyBody": "json",
             "jsonBody": "={{ $json.voice_request }}",
             "options": {
-                "timeout": 55000,
+                "timeout": 70000,
                 "response": {"response": {"responseFormat": "file", "outputPropertyName": "audio"}},
             },
         },
@@ -229,11 +234,11 @@ def build_workflow() -> dict:
         waitBetweenTries=5000,
         onError="continueRegularOutput",
     )
-    condition("MP3 Ready", "={{ !!$binary?.audio && !$json.error }}", 880, 0)
+    condition("Voice Note Ready", "={{ !!$binary?.audio && !$json.error }}", 880, 0)
     result(
         "TTS Failed",
         "return { json: {channel:'whatsapp',status:'failed',stage:'tts',"
-        "send_attempted:false,next_step:'Inspect Generate Demo MP3. "
+        "send_attempted:false,next_step:'Inspect Generate Voice Note. "
         "No WhatsApp message was attempted.'} };",
         1100,
         280,
@@ -251,7 +256,7 @@ def build_workflow() -> dict:
         {
             "operation": "write",
             "fileName": "={{ '/files/previews/whatsapp-' + $execution.id + '-' + "
-            "$('Prepare Voice Request').item.json.voice_request.customer_id + '.mp3' }}",
+            "$('Prepare Voice Request').item.json.voice_request.customer_id + '.ogg' }}",
             "dataPropertyName": "audio",
             "options": {},
         },
@@ -265,7 +270,8 @@ def build_workflow() -> dict:
         "customer_id:$('Prepare Voice Request').item.json.voice_request.customer_id,"
         "first_name:$('Prepare Voice Request').item.json.voice_request.first_name,"
         "send_attempted:false,"
-        "next_step:'Play the MP3. Set up Meta test credentials before selecting send mode.'},"
+        "next_step:'Play the voice-note preview. "
+        "Set up Meta test credentials before selecting send mode.'},"
         "binary:$binary };",
         1540,
         -300,
@@ -275,7 +281,7 @@ def build_workflow() -> dict:
     url += config + ".phone_number_id + '/"
     auth = {"authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth"}
     node(
-        "Upload MP3 to Meta",
+        "Upload Voice Note to Meta",
         "httpRequest",
         4.2,
         {
@@ -287,7 +293,7 @@ def build_workflow() -> dict:
             "bodyParameters": {
                 "parameters": [
                     {"name": "messaging_product", "value": "whatsapp"},
-                    {"name": "type", "value": "audio/mpeg"},
+                    {"name": "type", "value": "audio/ogg"},
                     {
                         "parameterType": "formBinaryData",
                         "name": "file",
@@ -313,12 +319,12 @@ def build_workflow() -> dict:
     result(
         "Upload Failed",
         "return { json: {channel:'whatsapp',status:'failed',stage:'upload',"
-        "send_attempted:false,next_step:'Inspect Upload MP3 to Meta and check the "
+        "send_attempted:false,next_step:'Inspect Upload Voice Note to Meta and check the "
         "token, API version and Phone Number ID.'} };",
         1760,
         240,
     )
-    code("Check Window and Prepare Audio", "whatsapp_before_send.js", 1760, -100)
+    # A backend reservation issues a send payload once, checking ownership, recipient and window.
     node(
         "Send WhatsApp Audio",
         "httpRequest",
@@ -329,8 +335,17 @@ def build_workflow() -> dict:
             "url": url + "messages' }}",
             "sendBody": True,
             "specifyBody": "json",
-            "jsonBody": "={{ $json }}",
-            "options": {"timeout": 30000},
+            "jsonBody": "={{ $json.payload }}",
+            "options": {
+                "timeout": 30000,
+                "response": {
+                    "response": {
+                        "fullResponse": True,
+                        "neverError": True,
+                        "responseFormat": "json",
+                    }
+                },
+            },
         },
         1980,
         -100,
@@ -343,17 +358,23 @@ def build_workflow() -> dict:
         "stickyNote",
         1,
         {
-            "content": "## WhatsApp Voice Test\n\nDefault: **CSV + preview**. "
-            "Each eligible CSV row gets a recording. All sends use the verified test phone.\n\n"
+            "content": "## WhatsApp reminders\n\nDefault: **CSV + preview + test routing**. "
+            "Send mode uses a durable PostgreSQL claim and single-use reservation.\n\n"
             "For live testing, follow **docs/whatsapp-test.md**. "
             "Use Meta's supplied test sender and your own verified recipient. "
-            "Send Hello first, then enter its UTC time in Demo Settings.\n\n"
+            "Send Hello first. With window_source=webhook and backend "
+            "WHATSAPP_WINDOW_SOURCE=webhook, its timestamp is recorded automatically. "
+            "Manual mode still requires last_hello_at_utc.\n\n"
             "Select the same Header Auth credential on Upload and Send: "
             "`Authorization: Bearer <token>`. Never paste the token into Demo Settings.\n\n"
             "Edit agent and bank in Demo Settings. CSV supplies customer names and dates. "
             "Set input_mode=single for Alex only.\n\n"
-            "Manual test only. Duplicate CSV IDs/due dates are skipped within each batch. "
-            "Every send-mode run is a fresh batch; don't rerun unknown results blindly.",
+            "Keep institution_id stable. Submitted/unknown/submitting/rejected reminders "
+            "are never automatically resent. Safe preparation failures retry on a later run, "
+            "subject to backend delay/attempt limits.\n\n"
+            "Customer routing requires CSV numbers, a recent incoming message per recipient "
+            "and backend "
+            "WHATSAPP_CUSTOMER_ROUTING_ENABLED=true. Never use fictional CSV phones for sending.",
             "width": 660,
             "height": 380,
         },
@@ -369,19 +390,17 @@ def build_workflow() -> dict:
         ("Collect CSV Rows", "Validate CSV Batch"),
         ("Validate CSV Batch", "Expand Prepared Customers"),
         ("Expand Prepared Customers", "Each WhatsApp Customer"),
-        ("Prepare Voice Request", "Generate Demo MP3"),
-        ("Generate Demo MP3", "MP3 Ready"),
+        ("Generate Voice Note", "Voice Note Ready"),
         ("Save WhatsApp Preview", "Preview Complete"),
-        ("Upload MP3 to Meta", "Upload Accepted"),
-        ("Check Window and Prepare Audio", "Send WhatsApp Audio"),
+        ("Upload Voice Note to Meta", "Upload Accepted"),
         ("Send WhatsApp Audio", "WhatsApp Result"),
     ]:
         connect(source, target)
-    connect("MP3 Ready", "Preview Only", 0)
-    connect("MP3 Ready", "TTS Failed", 1)
+    connect("Voice Note Ready", "Preview Only", 0)
+    connect("Voice Note Ready", "TTS Failed", 1)
     connect("Preview Only", "Save WhatsApp Preview", 0)
-    connect("Preview Only", "Upload MP3 to Meta", 1)
-    connect("Upload Accepted", "Check Window and Prepare Audio", 0)
+    connect("Preview Only", "Upload Voice Note to Meta", 1)
+    connect("Upload Accepted", "Reserve WhatsApp Send", 0)
     connect("Upload Accepted", "Upload Failed", 1)
     connect("Use CSV Customers", "Read WhatsApp customers.csv", 0)
     connect("Use CSV Customers", "Each WhatsApp Customer", 1)
@@ -391,26 +410,159 @@ def build_workflow() -> dict:
     connect("Customer Eligible", "Customer Skipped", 1)
     connect("Customer Skipped", "Each WhatsApp Customer")
     connect("Record Customer Outcome", "Each WhatsApp Customer")
-    for terminal in ("Preview Complete", "TTS Failed", "Upload Failed", "WhatsApp Result"):
-        connect(terminal, "Record Customer Outcome")
-    shifted = {
-        "Generate Demo MP3",
-        "MP3 Ready",
-        "TTS Failed",
-        "Preview Only",
-        "Save WhatsApp Preview",
-        "Preview Complete",
-        "Upload MP3 to Meta",
-        "Upload Accepted",
-        "Upload Failed",
-        "Check Window and Prepare Audio",
-        "Send WhatsApp Audio",
-        "WhatsApp Result",
+    connect("Preview Complete", "Record Customer Outcome")
+
+    # Keep orchestration in n8n; validation, ownership and state transitions are Python/SQL.
+    def backend(name, endpoint, body, x, y, *, retry=False):
+        node(
+            name,
+            "httpRequest",
+            4.2,
+            {
+                "method": "POST",
+                "url": endpoint,
+                "sendHeaders": True,
+                "headerParameters": {
+                    "parameters": [
+                        {"name": "X-API-Key", "value": "={{ $env.REMINDER_API_KEY }}"},
+                    ]
+                },
+                "sendBody": True,
+                "specifyBody": "json",
+                "jsonBody": body,
+                "options": {"timeout": 15000},
+            },
+            x,
+            y,
+            retryOnFail=retry,
+            maxTries=3,
+            waitBetweenTries=3000,
+            onError="continueRegularOutput",
+        )
+
+    condition(
+        "Track Send Mode",
+        "={{ $('Validate Demo Setup').first().json.mode === 'send' }}",
+        2500,
+        -200,
+    )
+    backend(
+        "Claim WhatsApp Reminder",
+        "http://tts-service:8000/api/v1/whatsapp/reminders/claim",
+        "={{ {row:$json.row,institution_id:$('Validate Demo Setup').first().json.institution_id,"
+        "routing_mode:$('Validate Demo Setup').first().json.routing_mode,"
+        "phone_number_id:$('Validate Demo Setup').first().json.phone_number_id,"
+        "test_recipient:$('Validate Demo Setup').first().json.test_recipient,"
+        "last_hello_at_utc:$('Validate Demo Setup').first().json.last_hello_at_utc} }}",
+        2700,
+        -300,
+    )
+    condition("Claim Acquired", "={{ $json.proceed === true && !$json.error }}", 2900, -300)
+    result(
+        "Claim Skipped",
+        "return {json:{channel:'whatsapp',status:$json.error?'tracking_error':'skipped',"
+        "reason:$json.error?'claim_unavailable':$json.reason,send_attempted:false}};",
+        2900,
+        200,
+    )
+    claim = "$('Claim WhatsApp Reminder').item.json"
+    backend(
+        "Reserve WhatsApp Send",
+        "={{ 'http://tts-service:8000/api/v1/whatsapp/reminders/' + "
+        + claim
+        + ".reminder_id + '/reserve' }}",
+        "={{ {token:" + claim + ".token,recipient:" + claim + ".recipient,media_id:$json.id} }}",
+        3900,
+        -300,
+    )
+    condition("Send Reserved", "={{ $json.proceed === true && !$json.error }}", 4100, -300)
+    result(
+        "Reservation Stopped",
+        "return {json:{channel:'whatsapp',status:$json.error?'held_for_review':'failed',"
+        "reason:$json.error?'reservation_unconfirmed':$json.reason,send_attempted:false,"
+        "automatic_retry:false}};",
+        4100,
+        220,
+    )
+    condition(
+        "Outcome Needs Tracking",
+        "={{ $('Validate Demo Setup').first().json.mode === 'send' }}",
+        4500,
+        320,
+    )
+    result(
+        "Prepare Tracking Outcome",
+        "const status=$json.status;const stage=$json.stage;"
+        "return {json:{...$json,tracking:{token:" + claim + ".token,status,"
+        "error_code:$json.error_code||(stage==='tts'?'tts_failed':"
+        "stage==='upload'?'upload_failed':null),message_id:$json.message_id||null}}};",
+        4700,
+        220,
+    )
+    backend(
+        "Record WhatsApp Status",
+        "={{ 'http://tts-service:8000/api/v1/whatsapp/reminders/' + "
+        + claim
+        + ".reminder_id + '/outcome' }}",
+        "={{ $json.tracking }}",
+        4900,
+        220,
+        retry=True,
+    )
+    result(
+        "Outcome Recorded",
+        "const {tracking,...result}=$('Prepare Tracking Outcome').item.json;"
+        "return {json:{...result,tracking_recorded:!$json.error,"
+        "...($json.error?{status:'held_for_review',reason:'outcome_unconfirmed'}:{})}};",
+        5100,
+        220,
+    )
+    connect("Prepare Voice Request", "Track Send Mode")
+    connect("Track Send Mode", "Claim WhatsApp Reminder", 0)
+    connect("Track Send Mode", "Generate Voice Note", 1)
+    connect("Claim WhatsApp Reminder", "Claim Acquired")
+    connect("Claim Acquired", "Generate Voice Note", 0)
+    connect("Claim Acquired", "Claim Skipped", 1)
+    connect("Claim Skipped", "Record Customer Outcome")
+    connect("Reserve WhatsApp Send", "Send Reserved")
+    connect("Send Reserved", "Send WhatsApp Audio", 0)
+    connect("Send Reserved", "Reservation Stopped", 1)
+    connect("Reservation Stopped", "Record Customer Outcome")
+    for terminal in ("TTS Failed", "Upload Failed", "WhatsApp Result"):
+        connect(terminal, "Outcome Needs Tracking")
+    connect("Outcome Needs Tracking", "Prepare Tracking Outcome", 0)
+    connect("Outcome Needs Tracking", "Record Customer Outcome", 1)
+    connect("Prepare Tracking Outcome", "Record WhatsApp Status")
+    connect("Record WhatsApp Status", "Outcome Recorded")
+    connect("Outcome Recorded", "Record Customer Outcome")
+    positions = {
+        "Track Send Mode": [2660, -100],
+        "Claim WhatsApp Reminder": [2900, -260],
+        "Claim Acquired": [3140, -260],
+        "Claim Skipped": [3380, 300],
+        "Generate Voice Note": [3380, -100],
+        "Voice Note Ready": [3620, -100],
+        "TTS Failed": [3860, 300],
+        "Preview Only": [3860, -100],
+        "Save WhatsApp Preview": [4100, -500],
+        "Preview Complete": [4340, -500],
+        "Upload Voice Note to Meta": [4100, -100],
+        "Upload Accepted": [4340, -100],
+        "Upload Failed": [4580, 300],
+        "Reserve WhatsApp Send": [4580, -100],
+        "Send Reserved": [4820, -100],
+        "Reservation Stopped": [5060, 300],
+        "Send WhatsApp Audio": [5060, -100],
+        "WhatsApp Result": [5300, -100],
+        "Outcome Needs Tracking": [5540, 100],
+        "Prepare Tracking Outcome": [5780, 100],
+        "Record WhatsApp Status": [6020, 100],
+        "Outcome Recorded": [6260, 100],
+        "Record Customer Outcome": [6500, 100],
     }
     for item in nodes:
-        if item["name"] in shifted:
-            item["position"][0] += 1980
-            item["position"][1] -= 100
+        if item["name"] in positions:
+            item["position"] = positions[item["name"]]
     return {
         "id": "whatsappVoiceTestMvp",
         "name": "WhatsApp Voice Reminder - Test Only",
@@ -420,7 +572,7 @@ def build_workflow() -> dict:
         "settings": {"executionOrder": "v1", "timezone": "Asia/Singapore", "executionTimeout": 600},
         "pinData": {},
         "tags": [],
-        "versionId": str(uuid5(NAMESPACE_URL, "whatsapp-voice-test-v1")),
+        "versionId": str(uuid5(NAMESPACE_URL, "whatsapp-voice-test-v4-webhooks")),
     }
 
 

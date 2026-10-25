@@ -25,14 +25,78 @@ services:
       TEST_RECIPIENT_VERIFIED: ${TEST_RECIPIENT_VERIFIED:-false}
       SENDER_EMAIL: ${SENDER_EMAIL:-support@example.com}
       VOICE: ${VOICE:-en-US-JennyNeural}
+      TTS_PROVIDER: ${TTS_PROVIDER:-edge}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      ELEVENLABS_ALLOWED_VOICES: ${ELEVENLABS_ALLOWED_VOICES:-}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-}
+      ELEVENLABS_LANGUAGE_CODE: ${ELEVENLABS_LANGUAGE_CODE:-}
+      ELEVENLABS_SPEED: ${ELEVENLABS_SPEED:-0.85}
+      ELEVENLABS_STABILITY: ${ELEVENLABS_STABILITY:-0.5}
+      ELEVENLABS_SIMILARITY_BOOST: ${ELEVENLABS_SIMILARITY_BOOST:-0.75}
       ALLOWED_VOICES: ${ALLOWED_VOICES:-en-US-JennyNeural,en-US-AriaNeural}
       LANGUAGE: ${LANGUAGE:-en}
       RATE: ${RATE:--15%}
       VOLUME: ${VOLUME:--5%}
+      AUDIO_CONVERSION_TIMEOUT_SECONDS: ${AUDIO_CONVERSION_TIMEOUT_SECONDS:-10}
+      WHATSAPP_TEST_RECIPIENT: ${WHATSAPP_TEST_RECIPIENT:-}
+      WHATSAPP_TEST_RECIPIENT_VERIFIED: ${WHATSAPP_TEST_RECIPIENT_VERIFIED:-false}
+      WHATSAPP_CUSTOMER_ROUTING_ENABLED: ${WHATSAPP_CUSTOMER_ROUTING_ENABLED:-false}
+      WHATSAPP_WINDOW_SOURCE: ${WHATSAPP_WINDOW_SOURCE:-manual}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      TENANT_ID: ${TENANT_ID:-fictional-demo}
+      LEASE_SECONDS: ${LEASE_SECONDS:-600}
+      MAX_ATTEMPTS: ${MAX_ATTEMPTS:-3}
+      RETRY_DELAY_SECONDS: ${RETRY_DELAY_SECONDS:-300}
     ports:
       - '127.0.0.1:8000:8000'
     depends_on:
       postgres:
+        condition: service_healthy
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # Optional public ingress. This image serves only health + Meta webhook routes.
+  webhook-gateway:
+    profiles: [webhook]
+    image: payment-reminder-mvp-tts-service:local
+    command: [uvicorn, app.webhook_main:create_app, --factory, --host, 0.0.0.0, --port, '8001', --no-access-log, --limit-concurrency, '32', --timeout-keep-alive, '5']
+    environment:
+      REMINDER_API_KEY: ${REMINDER_API_KEY}
+      DATABASE_URL: postgresql://reminder:${POSTGRES_PASSWORD}@postgres:5432/reminders
+      TENANT_ID: ${TENANT_ID:-fictional-demo}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_BUSINESS_ACCOUNT_ID: ${WHATSAPP_BUSINESS_ACCOUNT_ID:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  webhook-tunnel:
+    profiles: [webhook]
+    image: cloudflare/cloudflared:2026.10.0
+    command: [tunnel, --no-autoupdate, --metrics, '127.0.0.1:20241', --protocol, http2, --url, 'http://webhook-gateway:8001']
+    healthcheck:
+      test: [CMD, cloudflared, tunnel, --metrics, '127.0.0.1:20241', ready]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    depends_on:
+      webhook-gateway:
         condition: service_healthy
     read_only: true
     security_opt: [no-new-privileges:true]

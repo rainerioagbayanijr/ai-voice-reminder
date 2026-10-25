@@ -7,6 +7,7 @@ __pycache__/
 previews/*
 !previews/.gitkeep
 *.mp3
+*.ogg
 *.log
 coverage.xml
 .coverage

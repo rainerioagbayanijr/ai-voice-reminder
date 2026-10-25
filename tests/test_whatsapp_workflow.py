@@ -1,6 +1,6 @@
 import json
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -104,20 +104,17 @@ def test_invalid_setup_blocks_before_tts(live_config, field, value):
     assert "error" in execute_code("whatsapp_validate.js", live_config)
 
 
-def test_window_rechecked_after_upload(live_config):
-    config = execute_code("whatsapp_validate.js", live_config)["result"]["json"]
-    prepared = execute_code("whatsapp_before_send.js", {"id": "12345"}, config)["result"]["json"]
-    assert prepared == {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": "639171234567",
-        "type": "audio",
-        "audio": {"id": "12345"},
-    }
-    assert "error" in execute_code(
-        "whatsapp_before_send.js", {"id": "12345"}, config, NOW + timedelta(hours=24)
-    )
-    assert "error" in execute_code("whatsapp_before_send.js", {"id": "bad/id"}, config)
+def test_backend_reservation_required_after_upload():
+    workflow = build_workflow()
+    edges = workflow["connections"]
+    assert edges["Upload Accepted"]["main"][0][0]["node"] == "Reserve WhatsApp Send"
+    assert edges["Reserve WhatsApp Send"]["main"][0][0]["node"] == "Send Reserved"
+    assert edges["Send Reserved"]["main"][0][0]["node"] == "Send WhatsApp Audio"
+    nodes = {n["name"]: n for n in workflow["nodes"]}
+    assert nodes["Reserve WhatsApp Send"]["retryOnFail"] is False
+    assert nodes["Claim WhatsApp Reminder"]["retryOnFail"] is False
+    assert nodes["Record WhatsApp Status"]["retryOnFail"] is True
+    assert nodes["Send WhatsApp Audio"]["parameters"]["jsonBody"] == "={{ $json.payload }}"
 
 
 @pytest.mark.parametrize(
@@ -136,6 +133,44 @@ def test_outcome_does_not_claim_delivery_or_retry(response, expected):
     assert "private provider details" not in json.dumps(result)
 
 
+@pytest.mark.parametrize(
+    "http_status,code,status,retry",
+    [
+        (429, 130429, "failed", True),
+        (400, 130429, "failed", True),
+        (429, 131056, "failed", True),
+        (429, 999, "unknown", False),
+        (500, 1, "unknown", False),
+        (408, 1, "unknown", False),
+        (401, 190, "rejected", False),
+        (400, 131026, "rejected", False),
+    ],
+)
+def test_explicit_provider_response_classification(http_status, code, status, retry):
+    result = execute_code(
+        "whatsapp_result.js",
+        {
+            "statusCode": http_status,
+            "body": {"error": {"code": code, "message": "private"}},
+        },
+    )["result"]["json"]
+    assert result["status"] == status and result["automatic_retry"] is retry
+    assert "private" not in json.dumps(result)
+
+
+def test_customer_mode_requires_csv_but_not_a_shared_hello(live_config):
+    live_config.update(
+        routing_mode="customer",
+        test_recipient="",
+        last_hello_at_utc="",
+        recipient_verified=False,
+        meta_test_number_confirmed=False,
+    )
+    assert "result" in execute_code("whatsapp_validate.js", live_config)
+    live_config["input_mode"] = "single"
+    assert "error" in execute_code("whatsapp_validate.js", live_config)
+
+
 def test_export_reproducible_and_independent():
     workflow = build_workflow()
     assert workflow == json.loads((ROOT / "workflows/whatsapp_voice_test.json").read_text())
@@ -145,7 +180,11 @@ def test_export_reproducible_and_independent():
     assert nodes["Demo Settings"]["parameters"]["mode"] == "raw"
     assert json.loads(nodes["Demo Settings"]["parameters"]["jsonOutput"]) == CONFIG
     assert nodes["Send WhatsApp Audio"]["retryOnFail"] is False
-    assert nodes["Upload MP3 to Meta"]["parameters"]["bodyParameters"]["parameters"][-1] == {
+    assert "audio_format=ogg_opus" in nodes["Generate Voice Note"]["parameters"]["url"]
+    assert nodes["Upload Voice Note to Meta"]["parameters"]["bodyParameters"]["parameters"][1][
+        "value"
+    ] == "audio/ogg"
+    assert nodes["Upload Voice Note to Meta"]["parameters"]["bodyParameters"]["parameters"][-1] == {
         "parameterType": "formBinaryData",
         "name": "file",
         "inputDataFieldName": "audio",

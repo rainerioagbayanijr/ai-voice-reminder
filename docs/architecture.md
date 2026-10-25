@@ -1,5 +1,15 @@
 # Architecture and delivery semantics
 
+This diagram describes email. WhatsApp has its own durable ledger and single-use reservation
+flow; see [WhatsApp tracking, recovery and routing](whatsapp-reliability.md). Its customer-routing
+path stays disabled by default. Speech generation is shared and unchanged.
+
+Speech generation now runs through a common `SpeechProvider` interface. `TTS_PROVIDER=edge` retains
+the current engine; the optional ElevenLabs adapter can be selected later with explicit backend
+configuration. The same service renders templates and applies deadlines/concurrency before returning
+MP3 to email or to the existing OGG/Opus converter. There is no automatic provider failover.
+See [speech-provider details](speech-providers.md).
+
 ```mermaid
 flowchart TD
     Trigger[Manual / daily schedule] --> CSV[n8n reads and parses CSV]
@@ -48,3 +58,13 @@ This protection assumes all delivery goes through the complete workflow and rese
 The CSV adapter can be replaced with a CRM HTTP node that outputs the same JSON row contract. Keep the claim/TTS/delivery boundary. Future channels need their own provider adapters and channel-specific uniqueness. Consent, opt-out/suppression, per-recipient contact hours, multi-bank stable IDs, delivery webhooks, reporting and batch scaling are explicit future requirements. The manual/daily demo trigger is not a production contact-hours policy.
 
 Sources: [Data Tables](https://docs.n8n.io/data/data-tables/), [pinned n8n node source](https://github.com/n8n-io/n8n/tree/n8n%402.43.6/packages/nodes-base/nodes).
+
+## Optional webhook ingress (milestone 6)
+
+The `webhook` Compose profile adds Cloudflare's temporary HTTPS tunnel and a
+separate FastAPI gateway using the existing application image. Only Meta callback
+and health routes are exposed. Signed incoming events and delivery receipts are
+committed to additive PostgreSQL tables before acknowledgement. The private API
+uses those timestamps when webhook window mode is enabled; n8n still orchestrates
+outbound processing. Nothing automatically sends on an inbound event.
+See [configuration and review guide](whatsapp-webhooks.md).

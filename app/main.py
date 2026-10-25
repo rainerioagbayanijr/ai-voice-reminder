@@ -3,6 +3,7 @@ import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 from uuid import uuid4
 
 import psycopg
@@ -11,17 +12,35 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
-from app.models import ClaimRequest, CustomerBatchRequest, TransitionRequest, VoiceRequest
+from app.models import (
+    ClaimRequest,
+    CustomerBatchRequest,
+    TransitionRequest,
+    VoiceRequest,
+    WhatsAppClaimRequest,
+    WhatsAppOutcomeRequest,
+    WhatsAppReserveRequest,
+)
+from app.services.audio import (
+    AudioConversionBusy,
+    AudioConversionFailure,
+    AudioConversionTimeout,
+    AudioConversionUnavailable,
+    AudioConverter,
+)
 from app.services.customers import prepare_customer_batch
 from app.services.templates import Templates
 from app.services.tracking import StateConflict, TrackingStore
 from app.services.tts import TTSBusy, TTSFailure, TTSService
+from app.services.whatsapp import RoutingBlocked, WhatsAppStore, prepare_whatsapp_batch
 
 logger = logging.getLogger("reminder")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
-def create_app(settings: Settings | None = None, *, tts=None, store=None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, tts=None, store=None, whatsapp_store=None, converter=None
+) -> FastAPI:
     settings = settings or Settings()
     templates = Templates(settings)
     # Validate configured prosody using the same constraints as HTTP input.
@@ -31,11 +50,15 @@ def create_app(settings: Settings | None = None, *, tts=None, store=None) -> Fas
         bank_name="Demo",
         agent_name="Demo",
         due_date="2026-11-15",
-        rate=settings.rate,
-        volume=settings.volume,
+        rate=settings.rate if settings.tts_provider == "edge" else None,
+        volume=settings.volume if settings.tts_provider == "edge" else None,
     )
     tts = tts or TTSService(settings, templates)
+    converter = converter or AudioConverter(settings)
     store = store or (TrackingStore(settings, templates) if settings.database_url else None)
+    whatsapp_store = whatsapp_store or (
+        WhatsAppStore(settings, templates) if settings.database_url else None
+    )
 
     @asynccontextmanager
     async def lifespan(app):
@@ -95,6 +118,21 @@ def create_app(settings: Settings | None = None, *, tts=None, store=None) -> Fas
             raise HTTPException(503, "Tracking is not configured")
         return store
 
+    def whatsapp_tracking():
+        if whatsapp_store is None:
+            raise HTTPException(503, "WhatsApp tracking is not configured")
+        return whatsapp_store
+
+    @api.exception_handler(StateConflict)
+    async def state_conflict(request, exc):
+        return JSONResponse(
+            status_code=409, content={"detail": "Stale claim or invalid transition"}
+        )
+
+    @api.exception_handler(RoutingBlocked)
+    async def routing_blocked(request, exc):
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
+
     @api.get("/health")
     def health():
         return {"status": "ok"}
@@ -112,27 +150,67 @@ def create_app(settings: Settings | None = None, *, tts=None, store=None) -> Fas
     def prepare_customers(request: CustomerBatchRequest):
         return {"customers": prepare_customer_batch(request.rows)}
 
+    @api.post("/api/v1/whatsapp/customers/prepare", dependencies=auth)
+    def prepare_whatsapp(request: CustomerBatchRequest):
+        return {"customers": prepare_whatsapp_batch(request.rows)}
+
+    @api.post("/api/v1/whatsapp/reminders/claim", dependencies=auth)
+    def whatsapp_claim(request: WhatsAppClaimRequest, repository=Depends(whatsapp_tracking)):
+        return repository.claim(request)
+
+    @api.post("/api/v1/whatsapp/reminders/{reminder_id}/reserve", dependencies=auth)
+    def whatsapp_reserve(
+        reminder_id: str, request: WhatsAppReserveRequest, repository=Depends(whatsapp_tracking)
+    ):
+        return repository.reserve(reminder_id, request)
+
+    @api.post("/api/v1/whatsapp/reminders/{reminder_id}/outcome", dependencies=auth)
+    def whatsapp_outcome(
+        reminder_id: str, request: WhatsAppOutcomeRequest, repository=Depends(whatsapp_tracking)
+    ):
+        return repository.outcome(reminder_id, request)
+
+    @api.get("/api/v1/whatsapp/reminders", dependencies=auth)
+    def whatsapp_history(
+        limit: int = Query(default=100, ge=1, le=1000), repository=Depends(whatsapp_tracking)
+    ):
+        return repository.history(limit)
+
     @api.post("/api/v1/voice/preview", dependencies=auth)
     def preview(request: VoiceRequest):
         return {"script": templates.render("voice", request), "language": settings.language}
 
     @api.post("/api/v1/voice/generate", dependencies=auth)
-    async def generate(request: VoiceRequest):
+    async def generate(request: VoiceRequest, audio_format: Literal["mp3", "ogg_opus"] = "mp3"):
         try:
             audio = await tts.generate(request)
+            if audio_format == "ogg_opus":
+                audio = await converter.to_opus(audio)
+        except AudioConversionBusy:
+            raise HTTPException(
+                429, "Audio conversion capacity reached", headers={"Retry-After": "5"}
+            ) from None
+        except AudioConversionTimeout:
+            raise HTTPException(504, "Audio conversion deadline exceeded") from None
+        except AudioConversionUnavailable:
+            raise HTTPException(503, "Audio conversion unavailable") from None
+        except AudioConversionFailure:
+            raise HTTPException(502, "Audio conversion failed") from None
         except ValueError:
-            raise HTTPException(422, "Voice is not enabled") from None
+            raise HTTPException(422, "Voice or speech settings are not supported") from None
         except TTSBusy:
             raise HTTPException(429, "TTS capacity reached", headers={"Retry-After": "5"}) from None
         except TimeoutError:
             raise HTTPException(504, "TTS deadline exceeded") from None
         except TTSFailure:
             raise HTTPException(502, "Speech provider failed") from None
+        is_opus = audio_format == "ogg_opus"
+        filename = "payment_reminder.ogg" if is_opus else "payment_reminder.mp3"
         return Response(
             audio,
-            media_type="audio/mpeg",
+            media_type="audio/ogg" if is_opus else "audio/mpeg",
             headers={
-                "Content-Disposition": 'attachment; filename="payment_reminder.mp3"',
+                "Content-Disposition": f'attachment; filename="{filename}"',
                 "Cache-Control": "no-store",
             },
         )

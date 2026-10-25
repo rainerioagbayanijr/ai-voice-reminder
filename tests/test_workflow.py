@@ -28,7 +28,18 @@ def test_workflow_guards_and_binary_contract():
 
 def test_compose_local_binding_and_persistence():
     config = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
-    assert set(config["services"]) == {"tts-service", "n8n", "postgres"}
+    assert set(config["services"]) == {
+        "tts-service",
+        "n8n",
+        "postgres",
+        "webhook-gateway",
+        "webhook-tunnel",
+    }
+    for name in ("webhook-gateway", "webhook-tunnel"):
+        assert config["services"][name]["profiles"] == ["webhook"]
+        assert not config["services"][name].get("ports")
+    assert "app.webhook_main:create_app" in config["services"]["webhook-gateway"]["command"]
+    assert "http://webhook-gateway:8001" in config["services"]["webhook-tunnel"]["command"]
     assert config["services"]["n8n"]["image"].endswith(":2.43.6")
     for service in config["services"].values():
         for port in service.get("ports", []):

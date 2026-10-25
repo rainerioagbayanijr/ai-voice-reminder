@@ -1,8 +1,12 @@
 # Automated personalized voice payment reminders
 
+Milestone 6 adds an optional [WhatsApp webhook + temporary HTTPS tunnel](docs/whatsapp-webhooks.md)
+for automatic incoming-message windows and delivery/read/failure receipts. It uses
+the existing application image and PostgreSQL. Manual mode remains compatible until Meta is connected.
+
 A working fictional-data MVP: n8n reads CSV, validates and atomically claims each reminder through FastAPI, requests a personalized Edge TTS MP3, and attaches it to an SMTP email. PostgreSQL records outcomes. No LLM or paid AI API is used.
 
-**Default: dry run. Email mode always redirects to one independently verified test inbox. There is no real-customer delivery mode.** The bundled data is fictional. `sent` means SMTP submission was accepted; it does not mean inbox delivery or playback.
+**Default: dry run. Email mode always redirects to one independently verified test inbox.** WhatsApp defaults to preview and test routing; its per-customer routing path is disabled on the backend. The bundled data is fictional. `sent` means SMTP submission was accepted; it does not mean inbox delivery or playback.
 
 ## Quick start
 
@@ -34,21 +38,28 @@ Every recipient comes from the API's configured test override. CSV emails are va
 
 ## Separate WhatsApp voice test
 
-Import `workflows/whatsapp_voice_test.json` as **WhatsApp Voice Reminder - Test Only**. It defaults to **CSV input + preview**: n8n reads `data/customers.csv`, validates rows through the API, and generates one MP3 for each eligible, unique customer/due-date pair. The sample produces recordings for Juan, Maria, Ana and Luis; it skips Pedro, the invalid email row, and the repeated CUST001 row.
+Import `workflows/whatsapp_voice_test.json` as **WhatsApp Voice Reminder - Test Only**. It defaults to **CSV input + preview**: n8n reads `data/customers.csv`, validates rows through the API, and generates one OGG/Opus voice-note recording for each eligible, unique customer/due-date pair. The sample produces recordings for Juan, Maria, Ana and Luis; it skips Pedro, the invalid email row, and the repeated CUST001 row.
 
-To send the batch to your own verified test phone, follow [the Meta setup guide](docs/whatsapp-test.md) and select `mode=send`. All recordings go to `test_recipient`; CSV phone numbers are never used. **Demo Settings** controls `agent_name` (`Rain from Test Company`) and `bank_name` (`Test Bank`). The test uses plain company and bank names, with a sentence pause between them. Names and due dates come from CSV. Select `input_mode=single` to use the configured sample customer Alex instead.
+WhatsApp sends use Meta's voice-message flag. New WhatsApp previews are `.ogg`; email remains MP3.
+See [how to test native voice notes](docs/whatsapp-voice-notes.md) for the current steps.
+
+To send the batch to your own verified test phone, follow [the Meta setup guide](docs/whatsapp-test.md) and [tracking/routing configuration](docs/whatsapp-reliability.md). Select `mode=send`, `routing_mode=test`; the workflow and backend test phone must match. **Demo Settings** controls `agent_name` (`Rain from Test Company`) and `bank_name` (`Test Bank`). Names and due dates come from CSV. Select `input_mode=single` to use the configured sample customer Alex instead.
 
 The current spoken opening is: “Hi, this is Rain from Test Company. Calling from Test Bank, regarding your payment due on November fifteenth, two thousand twenty-six.” The next line addresses the current CSV customer by name. To change the company or bank, edit Demo Settings and save; to change the wording, edit `app/templates/fil/voice.txt` and rebuild `tts-service`. Refresh n8n after a CLI workflow import before editing or running it.
 
-This manual workflow has no schedule or automatic inbound trigger. Its mode is independent of email `DRY_RUN`. CSV duplicates are suppressed **within one execution only**; each new send-mode execution is another test batch. There is no durable WhatsApp duplicate ledger. Existing email tracking remains separate. See the guide for safe retry behavior and measured tests.
+This manual workflow has no schedule or automatic inbound trigger. Its mode is independent of email `DRY_RUN`. WhatsApp now has a separate durable PostgreSQL ledger, atomic claims and single-use send reservations. Submitted and uncertain reminders are protected across reruns/restarts. Safe failures can retry on a later execution within delay/attempt limits. Preview is repeatable. Per-customer routing requires an explicit backend setting plus valid per-row phones and incoming-message timestamps; never enable it against fictional sample numbers. Old pre-upgrade WhatsApp sends are not retrospectively tracked.
 
 ## Configuration and templates
+
+Speech providers are replaceable through `TTS_PROVIDER`: Edge remains active by default; an optional
+ElevenLabs adapter is available for later credentials. The current n8n/email/voice-note contracts
+are shared. See [provider configuration and test boundaries](docs/speech-providers.md).
 
 - Edit `app/templates/<LANGUAGE>/voice.txt`, `subject.txt`, and `email.txt`, then rebuild the API. Allowed placeholders: `{first_name}`, `{agent_name}`, `{bank_name}`, `{due_date}`. Templates are validated at startup. No arbitrary Python expressions or custom SSML.
 - The supplied `.env.example` selects Filipino: `fil-PH-BlessicaNeural`, `LANGUAGE=fil`, rate `-15%`, volume `-5%`. Existing `.env` files are preserved by setup; edit them explicitly to switch languages. Punctuation provides pauses; perceived tone requires listening and approval. `VOICE`, `ALLOWED_VOICES`, `RATE`, `VOLUME`, and `LANGUAGE` are environment settings. Requests may select only enabled voices. Prosody overrides are bounded to -50% through +20%.
 - English (`en`) and Filipino (`fil`) sample templates ship. To select Filipino in `.env`, set `LANGUAGE=fil`, `VOICE=fil-PH-BlessicaNeural`, and add `fil-PH-BlessicaNeural` to `ALLOWED_VOICES`. Run `docker compose up -d --build --wait tts-service`. Dates are displayed as `November 15, 2026`. In Filipino voice scripts, the date is spelled out as `November fifteenth, two thousand twenty-six` to avoid Filipino number names. The Filipino voice script starts with an English introduction and continues in Filipino. These settings apply to both email and WhatsApp; they do not change recipients or send modes. Voice availability, pronunciation, tone and wording need review before real use; see `docs/tts-and-compliance.md`.
 - `Settings` also accepts `TTS_TIMEOUT_SECONDS` (45), `MAX_CONCURRENCY` (2), `MAX_AUDIO_BYTES` (5 MB), `LEASE_SECONDS` (600), `MAX_ATTEMPTS` (3), and `RETRY_DELAY_SECONDS` (300). Pass these to the API container in Compose if changing them. Concurrency limits apply per API process.
-- To change the CSV, replace `data/customers.csv`; n8n mounts it read-only. Keep the header and ISO dates. `reminder_eligible` accepts only `true`/`false`. `phone` is optional and unused.
+- To change the CSV, replace `data/customers.csv`; n8n mounts it read-only. Keep the header and ISO dates. `reminder_eligible` accepts only `true`/`false`. `phone` is unused in email and WhatsApp test routing; WhatsApp customer routing requires it plus a per-row `last_hello_at_utc` column.
 
 ## Tests
 
@@ -57,6 +68,8 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements-dev.txt
 .venv/Scripts/python.exe -m pytest -q
 .venv/Scripts/python.exe -m ruff check app scripts tests
+# Actual n8n + disposable PostgreSQL + local mock WhatsApp/TTS; no real sends:
+.venv/Scripts/python.exe scripts/test_whatsapp_e2e.py
 # Real online speech, fictional names, no email:
 $env:PYTHONPATH='.'
 .venv/Scripts/python.exe scripts/tts_smoke.py

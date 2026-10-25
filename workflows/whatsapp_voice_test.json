@@ -25,7 +25,7 @@
       ],
       "parameters": {
         "mode": "raw",
-        "jsonOutput": "{\n  \"input_mode\": \"csv\",\n  \"mode\": \"preview\",\n  \"first_name\": \"Alex\",\n  \"agent_name\": \"Rain from Test Company\",\n  \"bank_name\": \"Test Bank\",\n  \"due_date\": \"2026-11-15\",\n  \"test_recipient\": \"\",\n  \"phone_number_id\": \"\",\n  \"graph_api_version\": \"\",\n  \"last_hello_at_utc\": \"\",\n  \"meta_test_number_confirmed\": false,\n  \"recipient_verified\": false\n}",
+        "jsonOutput": "{\n  \"input_mode\": \"csv\",\n  \"mode\": \"preview\",\n  \"routing_mode\": \"test\",\n  \"window_source\": \"manual\",\n  \"institution_id\": \"demo-bank\",\n  \"first_name\": \"Alex\",\n  \"agent_name\": \"Rain from Test Company\",\n  \"bank_name\": \"Test Bank\",\n  \"due_date\": \"2026-11-15\",\n  \"test_recipient\": \"\",\n  \"phone_number_id\": \"\",\n  \"graph_api_version\": \"\",\n  \"last_hello_at_utc\": \"\",\n  \"meta_test_number_confirmed\": false,\n  \"recipient_verified\": false\n}",
         "options": {}
       }
     },
@@ -40,7 +40,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// One fictional sample and one operator-verified Meta test recipient per manual run.\nconst config = $json;\nif (!['single', 'csv'].includes(config.input_mode)) {\n  throw new Error('Set input_mode to csv or single in Demo Settings.');\n}\nif (!['preview', 'send'].includes(config.mode)) {\n  throw new Error('Mode must be preview or send. Start with preview.');\n}\nif (typeof config.first_name !== 'string' ||\n    !/^[\\p{L}\\p{M} '\\u2019-]{1,60}$/u.test(config.first_name.trim())) {\n  throw new Error('Enter a sample first name containing letters, spaces, apostrophes or hyphens.');\n}\nfor (const field of ['agent_name', 'bank_name']) {\n  if (typeof config[field] !== 'string' || !config[field].trim() ||\n      config[field].trim().length > 100 || /[\\p{C}<>]/u.test(config[field])) {\n    throw new Error('Set ' + field + ' in Demo Settings to plain text of 1 to 100 characters.');\n  }\n}\nif (typeof config.due_date !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(config.due_date)) {\n  throw new Error('Set due_date in Demo Settings using YYYY-MM-DD.');\n}\nconst recipient = typeof config.test_recipient === 'string'\n  ? config.test_recipient.trim().replace(/^\\+/, '') : '';\nif (config.mode === 'send') {\n  if (config.meta_test_number_confirmed !== true || config.recipient_verified !== true) {\n    throw new Error('Confirm the sender is Meta\\'s developer test number and the recipient is your own verified, allowlisted phone.');\n  }\n  if (!/^[1-9][0-9]{7,14}$/.test(recipient)) {\n    throw new Error('Set test_recipient to your verified WhatsApp phone with country code, without spaces.');\n  }\n  if (typeof config.phone_number_id !== 'string' || !/^[0-9]{5,32}$/.test(config.phone_number_id)) {\n    throw new Error('Copy the Phone Number ID from Meta API Setup. This is an ID, not the displayed phone number.');\n  }\n  if (typeof config.graph_api_version !== 'string' ||\n      !/^v[0-9]{2,3}\\.0$/.test(config.graph_api_version)) {\n    throw new Error('Copy the Graph API version from the sample request in your Meta dashboard, such as vXX.0.');\n  }\n  if (typeof config.last_hello_at_utc !== 'string' ||\n      !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/.test(config.last_hello_at_utc)) {\n    throw new Error('Send Hello from your verified phone first, then enter its actual UTC time in last_hello_at_utc.');\n  }\n  const age = Date.now() - Date.parse(config.last_hello_at_utc);\n  if (!Number.isFinite(age) || age < 0 || age >= 24 * 60 * 60 * 1000 - 120000) {\n    throw new Error('The recorded Hello is invalid, in the future, or too close to/outside the 24-hour reply window. Send a fresh Hello.');\n  }\n}\nreturn { json: {\n  input_mode: config.input_mode,\n  status: 'eligible',\n  mode: config.mode,\n  test_recipient: recipient,\n  phone_number_id: config.phone_number_id,\n  graph_api_version: config.graph_api_version,\n  last_hello_at_utc: config.last_hello_at_utc,\n  voice_request: {\n    customer_id: 'WHATSAPP-DEMO',\n    first_name: config.first_name.trim(),\n    bank_name: config.bank_name.trim(),\n    agent_name: config.agent_name.trim(),\n    due_date: config.due_date\n  }\n}};\n"
+        "jsCode": "// One fictional sample and one operator-verified Meta test recipient per manual run.\nconst config = $json;\nconst windowSource = config.window_source || 'manual';\nif (!['manual', 'webhook'].includes(windowSource)) {\n  throw new Error('Set window_source to manual or webhook; it must match the backend setting.');\n}\nif (!['test', 'customer'].includes(config.routing_mode)) {\n  throw new Error('Set routing_mode to test or customer. Default to test.');\n}\nif (typeof config.institution_id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(config.institution_id)) {\n  throw new Error('Set a stable institution_id; changing it creates a different reminder identity.');\n}\nif (config.routing_mode === 'customer' && config.input_mode !== 'csv') {\n  throw new Error('Customer routing requires CSV input with each customer phone and a recent incoming message.');\n}\nif (!['single', 'csv'].includes(config.input_mode)) {\n  throw new Error('Set input_mode to csv or single in Demo Settings.');\n}\nif (!['preview', 'send'].includes(config.mode)) {\n  throw new Error('Mode must be preview or send. Start with preview.');\n}\nif (typeof config.first_name !== 'string' ||\n    !/^[\\p{L}\\p{M} '\\u2019-]{1,60}$/u.test(config.first_name.trim())) {\n  throw new Error('Enter a sample first name containing letters, spaces, apostrophes or hyphens.');\n}\nfor (const field of ['agent_name', 'bank_name']) {\n  if (typeof config[field] !== 'string' || !config[field].trim() ||\n      config[field].trim().length > 100 || /[\\p{C}<>]/u.test(config[field])) {\n    throw new Error('Set ' + field + ' in Demo Settings to plain text of 1 to 100 characters.');\n  }\n}\nif (typeof config.due_date !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(config.due_date)) {\n  throw new Error('Set due_date in Demo Settings using YYYY-MM-DD.');\n}\nconst recipient = typeof config.test_recipient === 'string'\n  ? config.test_recipient.trim().replace(/^\\+/, '') : '';\nif (config.mode === 'send') {\n  if (config.routing_mode === 'test') {\n  if (config.meta_test_number_confirmed !== true || config.recipient_verified !== true) {\n    throw new Error('Confirm the sender is Meta\\'s developer test number and the recipient is your own verified, allowlisted phone.');\n  }\n  if (!/^[1-9][0-9]{7,14}$/.test(recipient)) {\n    throw new Error('Set test_recipient to your verified WhatsApp phone with country code, without spaces.');\n  }\n  }\n  if (typeof config.phone_number_id !== 'string' || !/^[0-9]{5,32}$/.test(config.phone_number_id)) {\n    throw new Error('Copy the Phone Number ID from Meta API Setup. This is an ID, not the displayed phone number.');\n  }\n  if (typeof config.graph_api_version !== 'string' ||\n      !/^v[0-9]{2,3}\\.0$/.test(config.graph_api_version)) {\n    throw new Error('Copy the Graph API version from the sample request in your Meta dashboard, such as vXX.0.');\n  }\n  if (config.routing_mode === 'test' && windowSource === 'manual') {\n  if (typeof config.last_hello_at_utc !== 'string' ||\n      !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/.test(config.last_hello_at_utc)) {\n    throw new Error('Send Hello from your verified phone first, then enter its actual UTC time in last_hello_at_utc.');\n  }\n  const age = Date.now() - Date.parse(config.last_hello_at_utc);\n  if (!Number.isFinite(age) || age < 0 || age >= 24 * 60 * 60 * 1000 - 120000) {\n    throw new Error('The recorded Hello is invalid, in the future, or too close to/outside the 24-hour reply window. Send a fresh Hello.');\n  }\n  }\n}\nreturn { json: {\n  input_mode: config.input_mode,\n  status: 'eligible',\n  mode: config.mode,\n  routing_mode: config.routing_mode,\n  window_source: windowSource,\n  institution_id: config.institution_id,\n  test_recipient: recipient,\n  phone_number_id: config.phone_number_id,\n  graph_api_version: config.graph_api_version,\n  last_hello_at_utc: config.last_hello_at_utc,\n  voice_request: {\n    customer_id: 'WHATSAPP-DEMO',\n    first_name: config.first_name.trim(),\n    bank_name: config.bank_name.trim(),\n    agent_name: config.agent_name.trim(),\n    due_date: config.due_date\n  }\n}};\n"
       }
     },
     {
@@ -134,7 +134,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://tts-service:8000/api/v1/customers/prepare",
+        "url": "http://tts-service:8000/api/v1/whatsapp/customers/prepare",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -242,7 +242,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const c=$('Validate Demo Setup').first().json;return {json:{voice_request:{...$json.voice_request,agent_name:c.voice_request.agent_name,bank_name:c.voice_request.bank_name}}};"
+        "jsCode": "const c=$('Validate Demo Setup').first().json;const voice={...$json.voice_request,agent_name:c.voice_request.agent_name,bank_name:c.voice_request.bank_name};return {json:{voice_request:voice,row:{...($json.row||{}),...voice,reminder_eligible:true}}};"
       }
     },
     {
@@ -251,8 +251,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4840,
-        420
+        6500,
+        100
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
@@ -274,17 +274,17 @@
       }
     },
     {
-      "id": "1d2781b1-df9d-54c5-9259-a55800dc3496",
-      "name": "Generate Demo MP3",
+      "id": "70857ab5-ce3b-55ed-877c-d745da9f2ec1",
+      "name": "Generate Voice Note",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2640,
+        3380,
         -100
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://tts-service:8000/api/v1/voice/generate",
+        "url": "http://tts-service:8000/api/v1/voice/generate?audio_format=ogg_opus",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -298,7 +298,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ $json.voice_request }}",
         "options": {
-          "timeout": 55000,
+          "timeout": 70000,
           "response": {
             "response": {
               "responseFormat": "file",
@@ -313,12 +313,12 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "ac5eb640-f0ec-5842-a832-fe568be2b98a",
-      "name": "MP3 Ready",
+      "id": "98cb1ba1-784c-53ca-8746-6c43bc08d621",
+      "name": "Voice Note Ready",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2860,
+        3620,
         -100
       ],
       "parameters": {
@@ -331,7 +331,7 @@
           },
           "conditions": [
             {
-              "id": "ac5eb640-f0ec-5842-a832-fe568be2b98a",
+              "id": "98cb1ba1-784c-53ca-8746-6c43bc08d621",
               "leftValue": "={{ !!$binary?.audio && !$json.error }}",
               "rightValue": true,
               "operator": {
@@ -352,12 +352,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3080,
-        180
+        3860,
+        300
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "return { json: {channel:'whatsapp',status:'failed',stage:'tts',send_attempted:false,next_step:'Inspect Generate Demo MP3. No WhatsApp message was attempted.'} };"
+        "jsCode": "return { json: {channel:'whatsapp',status:'failed',stage:'tts',send_attempted:false,next_step:'Inspect Generate Voice Note. No WhatsApp message was attempted.'} };"
       }
     },
     {
@@ -366,8 +366,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3080,
-        -200
+        3860,
+        -100
       ],
       "parameters": {
         "conditions": {
@@ -400,12 +400,12 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1.1,
       "position": [
-        3300,
-        -400
+        4100,
+        -500
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "={{ '/files/previews/whatsapp-' + $execution.id + '-' + $('Prepare Voice Request').item.json.voice_request.customer_id + '.mp3' }}",
+        "fileName": "={{ '/files/previews/whatsapp-' + $execution.id + '-' + $('Prepare Voice Request').item.json.voice_request.customer_id + '.ogg' }}",
         "dataPropertyName": "audio",
         "options": {}
       }
@@ -416,21 +416,21 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3520,
-        -400
+        4340,
+        -500
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "return { json: {channel:'whatsapp',status:'preview',file:$json.fileName,customer_id:$('Prepare Voice Request').item.json.voice_request.customer_id,first_name:$('Prepare Voice Request').item.json.voice_request.first_name,send_attempted:false,next_step:'Play the MP3. Set up Meta test credentials before selecting send mode.'},binary:$binary };"
+        "jsCode": "return { json: {channel:'whatsapp',status:'preview',file:$json.fileName,customer_id:$('Prepare Voice Request').item.json.voice_request.customer_id,first_name:$('Prepare Voice Request').item.json.voice_request.first_name,send_attempted:false,next_step:'Play the voice-note preview. Set up Meta test credentials before selecting send mode.'},binary:$binary };"
       }
     },
     {
-      "id": "144758ce-c429-5165-a7a8-9fa2d9819c96",
-      "name": "Upload MP3 to Meta",
+      "id": "28603ed6-68f9-5492-a141-65b383e7192d",
+      "name": "Upload Voice Note to Meta",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3300,
+        4100,
         -100
       ],
       "parameters": {
@@ -448,7 +448,7 @@
             },
             {
               "name": "type",
-              "value": "audio/mpeg"
+              "value": "audio/ogg"
             },
             {
               "parameterType": "formBinaryData",
@@ -472,7 +472,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3520,
+        4340,
         -100
       ],
       "parameters": {
@@ -506,26 +506,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3740,
-        140
+        4580,
+        300
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "return { json: {channel:'whatsapp',status:'failed',stage:'upload',send_attempted:false,next_step:'Inspect Upload MP3 to Meta and check the token, API version and Phone Number ID.'} };"
-      }
-    },
-    {
-      "id": "ca444e59-ef56-59bc-99ff-1598a31c162f",
-      "name": "Check Window and Prepare Audio",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3740,
-        -200
-      ],
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// Recheck after synthesis/upload; neither TTS nor the upload opens a reply window.\nconst config = $('Validate Demo Setup').first().json;\nconst age = Date.now() - Date.parse(config.last_hello_at_utc);\nif (!Number.isFinite(age) || age < 0 || age >= 24 * 60 * 60 * 1000 - 30000) {\n  throw new Error('Reply window expired during preparation. No send was attempted. Send a fresh Hello and run again.');\n}\nif (typeof $json.id !== 'string' || !/^[0-9]{1,64}$/.test($json.id)) {\n  throw new Error('Meta did not return a valid uploaded media ID. No send was attempted.');\n}\nreturn { json: {\n  messaging_product: 'whatsapp',\n  recipient_type: 'individual',\n  to: config.test_recipient,\n  type: 'audio',\n  audio: { id: $json.id }\n}};\n"
+        "jsCode": "return { json: {channel:'whatsapp',status:'failed',stage:'upload',send_attempted:false,next_step:'Inspect Upload Voice Note to Meta and check the token, API version and Phone Number ID.'} };"
       }
     },
     {
@@ -534,8 +520,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3960,
-        -200
+        5060,
+        -100
       ],
       "parameters": {
         "authentication": "genericCredentialType",
@@ -544,9 +530,16 @@
         "url": "={{ 'https://graph.facebook.com/' + $('Validate Demo Setup').first().json.graph_api_version + '/' + $('Validate Demo Setup').first().json.phone_number_id + '/messages' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ $json }}",
+        "jsonBody": "={{ $json.payload }}",
         "options": {
-          "timeout": 30000
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
         }
       },
       "retryOnFail": false,
@@ -558,12 +551,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4180,
-        -200
+        5300,
+        -100
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// API acceptance is not a delivery/read receipt. Never retry an ambiguous send.\nconst response = $json;\nconst messageId = response.messages?.[0]?.id;\nconst accepted = !response.error && typeof messageId === 'string' && messageId.startsWith('wamid.');\nreturn { json: {\n  channel: 'whatsapp',\n  status: accepted ? 'submitted' : 'unknown',\n  message_id: accepted ? messageId : null,\n  automatic_retry: false,\n  next_step: accepted\n    ? 'Check your verified test phone. Meta accepted this message; delivery and playback are not confirmed.'\n    : 'Inspect the Send WhatsApp Audio node and your test phone before any manual retry. Submission may have succeeded.'\n}};\n"
+        "jsCode": "// API acceptance is not a delivery/read receipt. Never retry an ambiguous send.\nconst response = $json.body || $json;\nconst httpStatus = $json.statusCode;\nconst messageId = response.messages?.[0]?.id;\nconst accepted = !response.error && typeof messageId === 'string' &&\n  /^wamid\\.[A-Za-z0-9_=+./:-]{1,500}$/.test(messageId);\n// Only explicit, recognized rate-limit rejections qualify for a later retry.\nconst limited = !accepted && [400, 429].includes(httpStatus) &&\n  [130429, 131056].includes(response.error?.code);\nconst rejected = !accepted && !limited && !!response.error &&\n  [400, 401, 403, 404, 405, 410, 413, 415, 422].includes(httpStatus);\nconst status = accepted ? 'submitted' : limited ? 'failed' : rejected ? 'rejected' : 'unknown';\nreturn { json: {\n  channel: 'whatsapp',\n  status,\n  error_code: accepted ? null : limited ? 'provider_rate_limited' :\n    rejected ? 'provider_rejected' : 'submission_uncertain',\n  message_id: accepted ? messageId : null,\n  automatic_retry: limited,\n  next_step: accepted\n    ? 'Check your verified test phone. Meta accepted this message; delivery and playback are not confirmed.'\n    : 'Inspect the Send WhatsApp Audio node and your test phone before any manual retry. Submission may have succeeded.'\n}};\n"
       }
     },
     {
@@ -576,9 +569,300 @@
         -480
       ],
       "parameters": {
-        "content": "## WhatsApp Voice Test\n\nDefault: **CSV + preview**. Each eligible CSV row gets a recording. All sends use the verified test phone.\n\nFor live testing, follow **docs/whatsapp-test.md**. Use Meta's supplied test sender and your own verified recipient. Send Hello first, then enter its UTC time in Demo Settings.\n\nSelect the same Header Auth credential on Upload and Send: `Authorization: Bearer <token>`. Never paste the token into Demo Settings.\n\nEdit agent and bank in Demo Settings. CSV supplies customer names and dates. Set input_mode=single for Alex only.\n\nManual test only. Duplicate CSV IDs/due dates are skipped within each batch. Every send-mode run is a fresh batch; don't rerun unknown results blindly.",
+        "content": "## WhatsApp reminders\n\nDefault: **CSV + preview + test routing**. Send mode uses a durable PostgreSQL claim and single-use reservation.\n\nFor live testing, follow **docs/whatsapp-test.md**. Use Meta's supplied test sender and your own verified recipient. Send Hello first. With window_source=webhook and backend WHATSAPP_WINDOW_SOURCE=webhook, its timestamp is recorded automatically. Manual mode still requires last_hello_at_utc.\n\nSelect the same Header Auth credential on Upload and Send: `Authorization: Bearer <token>`. Never paste the token into Demo Settings.\n\nEdit agent and bank in Demo Settings. CSV supplies customer names and dates. Set input_mode=single for Alex only.\n\nKeep institution_id stable. Submitted/unknown/submitting/rejected reminders are never automatically resent. Safe preparation failures retry on a later run, subject to backend delay/attempt limits.\n\nCustomer routing requires CSV numbers, a recent incoming message per recipient and backend WHATSAPP_CUSTOMER_ROUTING_ENABLED=true. Never use fictional CSV phones for sending.",
         "width": 660,
         "height": 380
+      }
+    },
+    {
+      "id": "7d59875a-8800-5261-a841-2dc9ce6f1fd3",
+      "name": "Track Send Mode",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2660,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7d59875a-8800-5261-a841-2dc9ce6f1fd3",
+              "leftValue": "={{ $('Validate Demo Setup').first().json.mode === 'send' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cc04064d-c797-5612-935e-07d32735f198",
+      "name": "Claim WhatsApp Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2900,
+        -260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://tts-service:8000/api/v1/whatsapp/reminders/claim",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {row:$json.row,institution_id:$('Validate Demo Setup').first().json.institution_id,routing_mode:$('Validate Demo Setup').first().json.routing_mode,phone_number_id:$('Validate Demo Setup').first().json.phone_number_id,test_recipient:$('Validate Demo Setup').first().json.test_recipient,last_hello_at_utc:$('Validate Demo Setup').first().json.last_hello_at_utc} }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a9d4ded8-3bd3-5743-9d67-3b368144a383",
+      "name": "Claim Acquired",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3140,
+        -260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a9d4ded8-3bd3-5743-9d67-3b368144a383",
+              "leftValue": "={{ $json.proceed === true && !$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b973ce85-2170-5e74-a5a4-498ecb923e19",
+      "name": "Claim Skipped",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{channel:'whatsapp',status:$json.error?'tracking_error':'skipped',reason:$json.error?'claim_unavailable':$json.reason,send_attempted:false}};"
+      }
+    },
+    {
+      "id": "d403b20d-2a8a-581e-b3fd-17bd7554cbf5",
+      "name": "Reserve WhatsApp Send",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4580,
+        -100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/whatsapp/reminders/' + $('Claim WhatsApp Reminder').item.json.reminder_id + '/reserve' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {token:$('Claim WhatsApp Reminder').item.json.token,recipient:$('Claim WhatsApp Reminder').item.json.recipient,media_id:$json.id} }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "128b078e-7c8a-52a7-9316-9de983947faa",
+      "name": "Send Reserved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4820,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "128b078e-7c8a-52a7-9316-9de983947faa",
+              "leftValue": "={{ $json.proceed === true && !$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "00c90a56-51f4-5aff-9851-e375891d7482",
+      "name": "Reservation Stopped",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5060,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {json:{channel:'whatsapp',status:$json.error?'held_for_review':'failed',reason:$json.error?'reservation_unconfirmed':$json.reason,send_attempted:false,automatic_retry:false}};"
+      }
+    },
+    {
+      "id": "26592ab1-6e3b-5b34-a67e-3ffdc5b40160",
+      "name": "Outcome Needs Tracking",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5540,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "26592ab1-6e3b-5b34-a67e-3ffdc5b40160",
+              "leftValue": "={{ $('Validate Demo Setup').first().json.mode === 'send' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "bd76ea42-0a6d-5284-9947-8c8922342830",
+      "name": "Prepare Tracking Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5780,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const status=$json.status;const stage=$json.stage;return {json:{...$json,tracking:{token:$('Claim WhatsApp Reminder').item.json.token,status,error_code:$json.error_code||(stage==='tts'?'tts_failed':stage==='upload'?'upload_failed':null),message_id:$json.message_id||null}}};"
+      }
+    },
+    {
+      "id": "bfdcfecb-c9a6-57f7-b791-bd9035444ecc",
+      "name": "Record WhatsApp Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6020,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://tts-service:8000/api/v1/whatsapp/reminders/' + $('Claim WhatsApp Reminder').item.json.reminder_id + '/outcome' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.REMINDER_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.tracking }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e3c2eb60-9859-5af1-89f1-796d6b9f35f3",
+      "name": "Outcome Recorded",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6260,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const {tracking,...result}=$('Prepare Tracking Outcome').item.json;return {json:{...result,tracking_recorded:!$json.error,...($json.error?{status:'held_for_review',reason:'outcome_unconfirmed'}:{})}};"
       }
     }
   ],
@@ -671,22 +955,11 @@
         ]
       ]
     },
-    "Prepare Voice Request": {
+    "Generate Voice Note": {
       "main": [
         [
           {
-            "node": "Generate Demo MP3",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate Demo MP3": {
-      "main": [
-        [
-          {
-            "node": "MP3 Ready",
+            "node": "Voice Note Ready",
             "type": "main",
             "index": 0
           }
@@ -704,22 +977,11 @@
         ]
       ]
     },
-    "Upload MP3 to Meta": {
+    "Upload Voice Note to Meta": {
       "main": [
         [
           {
             "node": "Upload Accepted",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Window and Prepare Audio": {
-      "main": [
-        [
-          {
-            "node": "Send WhatsApp Audio",
             "type": "main",
             "index": 0
           }
@@ -737,7 +999,7 @@
         ]
       ]
     },
-    "MP3 Ready": {
+    "Voice Note Ready": {
       "main": [
         [
           {
@@ -766,7 +1028,7 @@
         ],
         [
           {
-            "node": "Upload MP3 to Meta",
+            "node": "Upload Voice Note to Meta",
             "type": "main",
             "index": 0
           }
@@ -777,7 +1039,7 @@
       "main": [
         [
           {
-            "node": "Check Window and Prepare Audio",
+            "node": "Reserve WhatsApp Send",
             "type": "main",
             "index": 0
           }
@@ -878,11 +1140,120 @@
         ]
       ]
     },
-    "TTS Failed": {
+    "Prepare Voice Request": {
+      "main": [
+        [
+          {
+            "node": "Track Send Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Send Mode": {
+      "main": [
+        [
+          {
+            "node": "Claim WhatsApp Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Voice Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim WhatsApp Reminder": {
+      "main": [
+        [
+          {
+            "node": "Claim Acquired",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Acquired": {
+      "main": [
+        [
+          {
+            "node": "Generate Voice Note",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Claim Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Skipped": {
       "main": [
         [
           {
             "node": "Record Customer Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve WhatsApp Send": {
+      "main": [
+        [
+          {
+            "node": "Send Reserved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reserved": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reservation Stopped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservation Stopped": {
+      "main": [
+        [
+          {
+            "node": "Record Customer Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TTS Failed": {
+      "main": [
+        [
+          {
+            "node": "Outcome Needs Tracking",
             "type": "main",
             "index": 0
           }
@@ -893,7 +1264,7 @@
       "main": [
         [
           {
-            "node": "Record Customer Outcome",
+            "node": "Outcome Needs Tracking",
             "type": "main",
             "index": 0
           }
@@ -901,6 +1272,57 @@
       ]
     },
     "WhatsApp Result": {
+      "main": [
+        [
+          {
+            "node": "Outcome Needs Tracking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome Needs Tracking": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tracking Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Customer Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tracking Outcome": {
+      "main": [
+        [
+          {
+            "node": "Record WhatsApp Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record WhatsApp Status": {
+      "main": [
+        [
+          {
+            "node": "Outcome Recorded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome Recorded": {
       "main": [
         [
           {
@@ -919,5 +1341,5 @@
   },
   "pinData": {},
   "tags": [],
-  "versionId": "c60d7efd-c6f9-5041-b4f0-d5399018f555"
+  "versionId": "9b7d5810-5c70-59f5-b147-711f99b4d6bf"
 }

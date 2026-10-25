@@ -5,6 +5,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.services.audio import (
+    AudioConversionBusy,
+    AudioConversionFailure,
+    AudioConversionTimeout,
+    AudioConversionUnavailable,
+)
 from app.services.tts import TTSBusy, TTSFailure
 
 
@@ -37,6 +43,55 @@ def test_auth_health_and_binary(settings, voice):
         assert "payment_reminder.mp3" in response.headers["content-disposition"]
         assert response.headers["cache-control"] == "no-store"
         assert response.headers["x-request-id"]
+
+
+class FakeConverter:
+    def __init__(self, error=None):
+        self.error = error
+        self.calls = []
+
+    async def to_opus(self, audio):
+        self.calls.append(audio)
+        if self.error:
+            raise self.error
+        return b"OggS-test-OpusHead-audio"
+
+
+def test_ogg_voice_note_and_mp3_default_are_independent(settings, voice):
+    converter = FakeConverter()
+    with TestClient(create_app(settings, tts=FakeTTS(), converter=converter)) as api:
+        response = api.post(
+            "/api/v1/voice/generate?audio_format=ogg_opus", json=voice, headers=headers(settings)
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "audio/ogg"
+        assert "payment_reminder.ogg" in response.headers["content-disposition"]
+        assert response.content.startswith(b"OggS")
+        assert converter.calls == [b"ID3fake-test-audio"]
+        response = api.post("/api/v1/voice/generate", json=voice, headers=headers(settings))
+        assert response.headers["content-type"] == "audio/mpeg"
+        assert len(converter.calls) == 1
+        response = api.post(
+            "/api/v1/voice/generate?audio_format=wav", json=voice, headers=headers(settings)
+        )
+        assert response.status_code == 422 and len(converter.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (AudioConversionFailure("private codec details"), 502),
+        (AudioConversionUnavailable("private system path"), 503),
+        (AudioConversionTimeout(), 504),
+        (AudioConversionBusy(), 429),
+    ],
+)
+def test_conversion_errors_are_sanitized(settings, voice, error, code):
+    with TestClient(create_app(settings, tts=FakeTTS(), converter=FakeConverter(error))) as api:
+        response = api.post(
+            "/api/v1/voice/generate?audio_format=ogg_opus", json=voice, headers=headers(settings)
+        )
+        assert response.status_code == code and "private" not in response.text
 
 
 @pytest.mark.parametrize(

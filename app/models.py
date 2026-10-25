@@ -92,3 +92,38 @@ class TransitionRequest(BaseModel):
     token: UUID
     status: Literal["submitting", "sent", "failed", "unknown", "dry_run"]
     error_code: Literal["tts_failed", "smtp_uncertain", "preview_failed"] | None = None
+
+
+class WhatsAppClaimRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row: dict[str, Any]
+    institution_id: CustomerID
+    routing_mode: Literal["test", "customer"] = "test"
+    phone_number_id: Annotated[str, Field(pattern=r"^[0-9]{5,32}$")]
+    test_recipient: str = Field(default="", max_length=30)
+    last_hello_at_utc: str = Field(default="", max_length=40)
+
+
+class WhatsAppReserveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: UUID
+    recipient: Annotated[str, Field(pattern=r"^[1-9][0-9]{7,14}$")]
+    media_id: Annotated[str, Field(pattern=r"^[0-9]{1,64}$")]
+
+
+class WhatsAppOutcomeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: UUID
+    status: Literal["failed", "submitted", "unknown", "rejected"]
+    error_code: (
+        Literal[
+            "tts_failed",
+            "upload_failed",
+            "window_expired",
+            "submission_uncertain",
+            "provider_rejected",
+            "provider_rate_limited",
+        ]
+        | None
+    ) = None
+    message_id: Annotated[str, Field(pattern=r"^wamid\.[A-Za-z0-9_=+./:-]{1,500}$")] | None = None

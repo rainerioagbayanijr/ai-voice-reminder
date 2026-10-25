@@ -57,7 +57,7 @@ def test_filipino_voice_adapter(settings, voice, monkeypatch):
         async def stream(self):
             yield {"type": "audio", "data": b"ID3filipino"}
 
-    monkeypatch.setattr("app.services.tts.edge_tts.Communicate", Communicator)
+    monkeypatch.setattr("app.services.providers.edge.edge_tts.Communicate", Communicator)
     service = TTSService(settings, Templates(settings))
     assert asyncio.run(service.generate(VoiceRequest(**voice))) == b"ID3filipino"
     assert calls[0][1] == "fil-PH-BlessicaNeural"
@@ -120,7 +120,7 @@ def test_edge_adapter_and_prosody(settings, voice, monkeypatch):
             yield {"type": "audio", "data": b"ID3"}
             yield {"type": "audio", "data": b"audio"}
 
-    monkeypatch.setattr("app.services.tts.edge_tts.Communicate", Communicator)
+    monkeypatch.setattr("app.services.providers.edge.edge_tts.Communicate", Communicator)
     service = TTSService(settings, Templates(settings))
     assert asyncio.run(service.generate(VoiceRequest(**voice))) == b"ID3audio"
     assert calls[0][1] == "en-US-JennyNeural"
@@ -148,7 +148,7 @@ def test_edge_failure_cleanup(settings, voice, monkeypatch, behavior):
             if False:
                 yield
 
-    monkeypatch.setattr("app.services.tts.edge_tts.Communicate", Communicator)
+    monkeypatch.setattr("app.services.providers.edge.edge_tts.Communicate", Communicator)
     service = TTSService(settings, Templates(settings))
     with pytest.raises(TimeoutError if behavior == "timeout" else TTSFailure):
         asyncio.run(service.generate(VoiceRequest(**voice)))

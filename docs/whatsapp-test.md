@@ -6,14 +6,21 @@ n8n name: **WhatsApp Voice Reminder - Test Only**
 
 This separate workflow reads fictional customers from `data/customers.csv` and generates a personalized recording for each eligible row. All sends are redirected to your own verified WhatsApp test phone. It reuses the existing speech API and CSV mount. It does not use SMTP or alter the email workflow or its credentials.
 
+**Tracking upgrade:** Send mode now uses a durable WhatsApp PostgreSQL ledger. Configure the
+backend test recipient as well as Demo Settings before sending; see
+[tracking, retries and customer routing](whatsapp-reliability.md). Customer routing is an additional,
+explicitly enabled path, disabled by default. The steps below describe test routing.
+
 Defaults are `input_mode=csv` and `mode=preview`. No Meta account is needed for preview. Internet is needed for real Edge TTS. The current seven-row CSV yields four previews: Juan, Maria, Ana and Luis. One ineligible row, one invalid row and one duplicate are skipped. Set `input_mode=single` to test Alex from Demo Settings instead.
+
+See [native voice-note testing](whatsapp-voice-notes.md) for the format upgrade and phone-test steps.
 
 ## Try preview now
 
 1. Start the existing stack with `docker compose up -d --wait`.
 2. Open n8n, import `workflows/whatsapp_voice_test.json`, and open **WhatsApp Voice Reminder - Test Only**. If it was already imported for you, open that workflow instead of importing another copy.
 3. Execute the entire workflow from **Start WhatsApp Test**. Leave **Demo Settings** at its defaults.
-4. Open **Preview Complete** to inspect/download its `audio` binary. The recording also appears in the host `previews` folder as `whatsapp-<execution-id>-<customer-id>.mp3`.
+4. Open **Preview Complete** to inspect/download its `audio` binary. The OGG/Opus recording also appears in the host `previews` folder as `whatsapp-<execution-id>-<customer-id>.ogg`.
 
 Rain from Test Company and Test Bank are fictional demo identities, configurable in Demo Settings as `agent_name` and `bank_name`. In CSV mode, each row supplies the customer name and due date; the configured agent and bank override CSV institution/agent values for this test. The spoken date uses explicit English words, such as “November fifteenth, two thousand twenty-six.” Preview before sending to review pronunciation. All three language templates still use the supported `{due_date}` placeholder; only voice speech expands its digits into words.
 
@@ -48,7 +55,7 @@ Meta advertises [free test numbers and sandbox resources](https://whatsappbusine
 
 ## Save the token securely in n8n
 
-Open **Upload MP3 to Meta** and create/select a **Header Auth** credential:
+Open **Upload Voice Note to Meta** and create/select a **Header Auth** credential:
 
 | Credential field | Value |
 |---|---|
@@ -59,9 +66,9 @@ Open **Upload MP3 to Meta** and create/select a **Header Auth** credential:
 
 Do not put the token in Demo Settings, source control, a chat message, a URL, or an environment example. The exported workflow contains no token or actual credential ID. Header Auth has no Meta-specific connection test; use Meta's sample request and inspect the API node output if sending fails.
 
-## Send your first audio message
+## Send your first voice note
 
-1. On your verified phone, reply **Hello** in the chat with Meta's test number. You do **not** wait 24 hours. This opens the window for ordinary replies immediately.
+1. Configure `WHATSAPP_TEST_RECIPIENT` and `WHATSAPP_TEST_RECIPIENT_VERIFIED=true` in `.env`, keep `WHATSAPP_CUSTOMER_ROUTING_ENABLED=false`, and rebuild/recreate `tts-service`. On your verified phone, reply **Hello** in the chat with Meta's test number. You do **not** wait 24 hours. This opens the window for ordinary replies immediately.
 2. Immediately after sending Hello, obtain its approximate UTC time in PowerShell:
 
    ```powershell
@@ -73,6 +80,8 @@ Do not put the token in Demo Settings, source control, a chat message, a URL, or
    | Field | What to enter |
    |---|---|
    | `mode` | `"send"` |
+   | `routing_mode` | `"test"`; backend override is enforced |
+   | `institution_id` | Stable `"demo-bank"`; do not change to bypass duplicate protection |
    | `input_mode` | `"csv"` for the CSV batch, or `"single"` for one sample |
    | `first_name` | Sample name used only in single mode, such as `"Alex"` |
    | `agent_name` | `"Rain from Test Company"` for this demo |
@@ -98,21 +107,25 @@ The timestamp and verification flags are operator attestations; this manual work
 - Each eligible CSV customer produces one message to the configured test phone. The CSV is never used to select recipients. No production phone, scheduled reminders or background sending are configured.
 - Sending Hello does **not** itself trigger this manual workflow. You click Execute afterward. This avoids adding a public HTTPS webhook/tunnel, webhook verification, and another credential setup to the first demo.
 - Upload and TTS requests have bounded retries. **The send request has no automatic retry**, because an interrupted response may conceal an accepted submission.
-- Every manual send-mode run is a fresh batch, including previously tested rows. Duplicate IDs/due dates are suppressed only within that execution. This demo does not use the email reminder ledger or provide its durable duplicate prevention. Do not repeatedly click Execute, run overlapping tests, or rerun the send node alone. If you need automatic inbound triggers, durable idempotency, or delivery webhooks later, implement those as a separate extension.
-- A normal MP3 audio message is sent. It is not a WhatsApp voice call. A specific voice-note bubble/transcription behavior is not promised.
+- Every send-mode execution checks a durable WhatsApp ledger before generating audio. Previously submitted, submitting, unknown or rejected reminders are skipped across executions/restarts. Safe preparation failures can retry on a later full run after the configured delay, within the attempt limit. Never rerun the send node alone. Old pre-upgrade sends have no ledger entries and are not automatically reconstructed. Webhook integration remains future work.
+- OGG/Opus audio is sent with `audio.voice=true` to request a native voice note. Verify appearance/playback on your phone. It is not a voice call; transcription availability is controlled by WhatsApp.
 - Changing `.env`'s email `DRY_RUN` has no effect on this workflow. Change `mode` in **Demo Settings**.
 
 ## Results and errors
 
 | Result | Meaning / action |
 |---|---|
-| `preview` | MP3 saved; no Meta request was made |
+| `preview` | OGG/Opus preview saved; no Meta request was made |
 | Validation error | Fix the named setting; no TTS/upload/send was attempted |
 | `failed`, stage `tts` | No media upload or message attempt; inspect the TTS node |
 | `failed`, stage `upload` | No message attempted; inspect token, version, recipient setup and upload error |
 | Window expired after upload | Media may be uploaded, but no message was attempted; send a fresh Hello |
 | `submitted` | Meta returned a message ID; check your phone |
 | `unknown` | Send failed or returned no valid message ID; inspect the API response and phone before any manual retry |
+| `rejected` | Explicit permanent provider rejection; held for review, no automatic retry |
+| `held_for_review` | Reservation/outcome acknowledgement was uncertain; no automatic resend |
+| `skipped` | Ineligible/invalid/duplicate, already processed, waiting for backoff, or retry limit reached |
+| `tracking_error` | Claim unavailable or routing blocked; no TTS/upload/send for that row |
 
 Expired tokens, wrong Phone Number IDs, unverified test recipients, a closed reply window and unavailable test resources are common account/setup failures. Do not replace the API host, disable certificate verification, or add a payment method just to bypass a failed test.
 
@@ -126,7 +139,7 @@ Actual n8n upload/send transport tests with local mock endpoints:
 .venv/Scripts/python.exe scripts/test_whatsapp_e2e.py
 ```
 
-The harness starts disposable n8n/mock containers on a Docker network with **no internet route**. It tests multipart MP3 transfer, exact recipient routing, preview, upload failure, TTS failure, send failure, lost acknowledgement, and expired-window rejection. Fixture audio is deliberately not playable; it proves transport only. It uses no real Meta credentials and cleans up its own containers/network. The ordinary n8n and email workflow are not modified by the test harness.
+The harness starts disposable n8n/API/mock containers on an internal Docker network and a disposable PostgreSQL database. Only the database also has a bridge connection with a loopback-only published port for host pytest. It tests persistent tracking, multipart transfer, test and per-customer routing, duplicate reruns, bounded recovery and uncertain sends. A generated tone passes through the real API/FFmpeg converter, and ffprobe verifies the uploaded Opus stream. It proves encoding and transport, not spoken quality. No real Meta credentials are used. The ordinary n8n and email workflow are not modified by the harness. See the reliability guide for details.
 
 A live preview in the ordinary n8n instance verifies the real speech endpoint separately. Live receipt was confirmed during the original Meta test-number demonstration. Automated CSV submission tests use mock Meta endpoints; confirm receipt on your configured phone when testing your own saved token.
 
@@ -137,7 +150,7 @@ Initial single-customer measurements on 16 October 2026:
 - The separate workflow imported successfully into n8n 2.43.6 without a Meta credential. Its real preview execution finished at **Preview Complete**, produced `previews/whatsapp-8.mp3` (148,896 bytes, valid MP3 header), and executed neither upload nor send node.
 - The normal API, n8n and PostgreSQL services stayed healthy. The email workflow, its credentials, CSV and environment settings were not changed by this addition.
 
-Current CSV and spoken-wording checks on 16 October 2026:
+Historical CSV and spoken-wording checks on 16 October 2026 (before the tracking upgrade):
 
 - The full suite passed 81 tests, with 12 database tests skipped because no test database URL was supplied. Ruff passed.
 - Nine isolated n8n transport scenarios passed during CSV integration, including distinct customer names/dates, unique preview filenames, fixed test-recipient routing and invalid/ineligible/duplicate skips.

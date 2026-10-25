@@ -1,6 +1,54 @@
 # Implementation verification
 
-## Current prototype status on 16 October 2026
+## Replaceable speech providers on 24 October 2026
+
+- Added the `SpeechProvider` protocol, a provider factory, Edge and optional ElevenLabs adapters,
+  and a shared service for rendering, deadlines, concurrency and MP3 validation. OGG conversion and
+  n8n delivery use the same contract. There is no automatic provider failover.
+- **167 tests with PostgreSQL and all 20 actual n8n integration scenarios passed.** The final
+  logging change passed an additional focused rerun of 76 affected tests. Ruff and whitespace
+  checks passed; no live credentials were added to source.
+- Both mocked provider paths passed real MP3/Opus codec checks in a network-disabled container.
+  A real deployed Edge preview also produced valid MP3 and OGG/Opus recordings using the existing
+  Filipino voice. The local stack remains configured for Edge, not the paid provider.
+- Live ElevenLabs synthesis/account validation is intentionally unverified without credentials.
+  The n8n workflow and Meta credential references were not changed. No live WhatsApp message or
+  email was sent during these checks. See `speech-providers.md` and `testing.md` for details.
+
+## Native voice notes on 24 October 2026
+
+- Added bounded in-memory FFmpeg conversion for `audio_format=ogg_opus`. WhatsApp uses
+  `payment_reminder.ogg`, uploads `audio/ogg`, and reserves `audio:{id,voice:true}`. Email keeps MP3.
+- **139 automated tests and 20 actual n8n integration scenarios passed**, with real PostgreSQL
+  and FFmpeg. Local provider mocks verified upload bytes, Opus metadata and the voice flag.
+- A real local Edge TTS CSV preview generated four distinct OGG/Opus recordings and skipped three
+  rows. ffprobe and full decoding verified all four. No upload/send node executed in that preview.
+- The upgraded workflow is imported locally with its credentials preserved and manual settings
+  prepared for CSV/test/send. Customer routing remains disabled. No live Meta send was performed;
+  current credentials and an actual recent incoming-message timestamp are required for the phone test.
+- Source workflow defaults remain preview. Speech wording and the durable reminder identity are
+  unchanged, so switching audio format does not bypass duplicate protection.
+- See `whatsapp-voice-notes.md` for the user's next steps; `testing.md` records the measured scope.
+
+## Earlier WhatsApp reliability upgrade on 24 October 2026
+
+- Added separate durable PostgreSQL tracking for WhatsApp: atomic claims, single-use reservations,
+  persistent message IDs/events, processing-lease recovery, bounded preparation retries and held
+  uncertain/rejected submissions.
+- Added backend-enforced test recipient matching and an explicitly enabled customer-routing path.
+  Customer mode uses each CSV row's phone and incoming-message timestamp; it stays disabled locally.
+- **126 automated tests passed with real PostgreSQL and no database skips. All 19 actual n8n
+  integration scenarios passed** with local provider mocks. See `testing.md` for measured scope.
+- Existing script, MP3 audio format, Edge TTS provider and email delivery behavior are retained.
+  A real local Edge TTS CSV preview generated four distinct MP3s and skipped three rows, with
+  zero upload/send attempts and no failures. Live Meta delivery with the current account/token
+  was not revalidated. The upgraded local workflow is imported in preview/test mode with its
+  existing credential references preserved; API, n8n and PostgreSQL are healthy.
+- The pre-upgrade WhatsApp workflow did not record durable send history. Its historical sends cannot
+  be automatically deduplicated by this new ledger. Review before the first post-upgrade send.
+- Webhook verification, native voice-note format and production hosting remain separate work.
+
+## Historical prototype status on 16 October 2026
 
 - The WhatsApp test workflow now reads the seven-row fictional CSV and generates separate recordings for Juan, Maria, Ana and Luis. One invalid row, one ineligible row and one duplicate are skipped. All sends use the configured verified test phone; CSV phone numbers are ignored.
 - The final opening uses Rain from Test Company and Test Bank, with a sentence pause between the company and bank. Filipino speech dates are written as explicit English words; email dates retain English month names and digits.
@@ -44,3 +92,21 @@ The following results describe the original five-row email test fixture and depl
 ```
 
 Use `TEST_DATABASE_URL` for the database tests as documented in `testing.md`; otherwise those tests skip. The local integration harness uses isolated test volumes and loopback ports and never relays SMTP. It leaves all schedules inactive. Generated secrets and capture artifacts are ignored by version control.
+# Milestone 6 — 2026-10-25
+
+Built the optional isolated webhook gateway and Cloudflare Quick Tunnel profile.
+182 automated tests and 20 actual n8n regression scenarios passed. PostgreSQL
+ingestion/window/history integration and FFmpeg use real local implementations;
+the regression harness mocks external speech/Meta. No actual messages were sent.
+The live HTTPS token challenge and private-route isolation passed. All five normal
+services are healthy. Existing n8n Demo Settings and Meta credential references
+were preserved during import; manual window mode remains selected until Meta setup.
+
+After the operator saved the App Secret, the gateway was recreated and all public
+callback checks passed again: valid locally signed notification accepted, invalid
+signature rejected, token challenge verified, and private routes blocked. No Hello
+event or outbound message was created by this smoke test. Real incoming Meta
+Hello/delivery notifications are **not yet verified**; configure the Meta callback
+and messages subscription, then enable webhook window mode after a real incoming
+message is recorded. The tunnel hostname is temporary.
+See [setup and code-review guide](whatsapp-webhooks.md).

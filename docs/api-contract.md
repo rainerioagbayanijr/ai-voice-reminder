@@ -75,10 +75,51 @@ Use an actual UUID returned by claim. Allowed status values are `submitting`, `s
 
 `GET /api/v1/reminders?limit=100` returns recent history (limit 1–1000), excluding ownership tokens and recipient information. Event history is available to operators via PostgreSQL `reminder_events`. No unauthenticated customer data endpoints exist.
 
-## Customer preparation for the WhatsApp CSV test
+## Generic customer preparation (retained API)
 
 `POST /api/v1/customers/prepare` requires `X-API-Key` and accepts `{"rows": [...]}` with 1–1,000 CSV row objects using the shared customer schema. It requires no tracking database and makes no speech or delivery requests.
 
 The response is `{"customers": [...]}`, preserving row order. Each valid, eligible row returns `status=eligible`, its row index and customer ID, and a normalized `voice_request`. Other rows return `status=skipped` and one of `invalid_customer`, `ineligible`, or `duplicate_in_batch`. Email addresses, phone numbers and raw validation inputs are excluded from the response. Duplicate identity is customer ID plus due date, within this request only. It is not a durable send ledger.
 
-The WhatsApp workflow overrides the prepared agent/bank with its Demo Settings values, retains each CSV customer's first name and due date, and routes every message to its verified test recipient.
+The updated WhatsApp workflow uses the channel-specific preparation endpoint below so it can retain per-row routing information. Agent/bank overrides and CSV customer names/dates are preserved.
+
+## WhatsApp tracking extension
+
+Speech provider selection is server-only (`TTS_PROVIDER=edge` by default). The optional ElevenLabs
+adapter uses the same request schema and MP3/OGG response contract. A request's `voice` is an ID
+from the selected provider's allowlist, not a provider selector. ElevenLabs rejects nonzero `volume`
+and rates outside its supported speed range with 422 before any upstream call. See
+[provider configuration](speech-providers.md). The WhatsApp nodes and credential setup do not change.
+
+WhatsApp now calls `POST /api/v1/voice/generate?audio_format=ogg_opus` with the same voice-request
+JSON. It returns `audio/ogg` and filename `payment_reminder.ogg`. Omitting `audio_format` retains
+MP3/email behavior. Any format other than `mp3` or `ogg_opus` returns 422. Converter saturation,
+decode failure, missing executable and deadline expiration return sanitized 429, 502, 503 and 504
+respectively. WhatsApp reservations now issue `audio:{id:media_id,voice:true}`. See
+[voice-note setup](whatsapp-voice-notes.md).
+
+All endpoints require the existing `X-API-Key`. See [routing and recovery](whatsapp-reliability.md).
+
+| Endpoint | Input / output |
+|---|---|
+| `POST /api/v1/whatsapp/customers/prepare` | `{rows:[CSV rows]}` → independent eligible/skipped results; eligible rows retain phone and per-row Hello timestamp, omit email |
+| `POST /api/v1/whatsapp/reminders/claim` | `{row,institution_id,routing_mode,phone_number_id,test_recipient,last_hello_at_utc}` → `{proceed,reminder_id,token,recipient,voice_request}` or skip reason |
+| `POST /api/v1/whatsapp/reminders/{id}/reserve` | `{token,recipient,media_id}` → one-time `{proceed,phone_number_id,payload}`; expired window returns `proceed:false` |
+| `POST /api/v1/whatsapp/reminders/{id}/outcome` | `{token,status,error_code?,message_id?}` → acknowledged status; exact terminal acknowledgements are idempotent |
+| `GET /api/v1/whatsapp/reminders?limit=100` | Sanitized history, maximum 1,000 rows; no raw phone or claim token |
+
+`routing_mode` is `test` (default) or `customer`. Disabled/misconfigured routing returns 403.
+Stale tokens, invalid transitions and repeated reservations return 409. Database outages return
+sanitized 503 responses. A reserve call must never be automatically retried. Customer reply-window
+timestamps in manual mode come from each row; test mode uses the workflow's global timestamp.
+With `WHATSAPP_WINDOW_SOURCE=webhook`, both use recorded, signed incoming notifications instead.
+`submitted` confirms provider acceptance only, not delivery or playback.
+
+## Optional public WhatsApp webhook
+
+The isolated gateway (port 8001 inside Docker; no host port) serves only
+`GET /webhooks/whatsapp`, `POST /webhooks/whatsapp` and `GET /health`.
+GET uses Meta verification token/challenge; POST uses the App Secret HMAC signature,
+not `X-API-Key`. See [setup and response codes](whatsapp-webhooks.md).
+Authenticated private reminder history adds `delivery_status`, `delivery_status_at`
+and `delivery_error_code`; the existing submission state remains separate.

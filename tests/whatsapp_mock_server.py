@@ -2,16 +2,36 @@
 
 import base64
 import json
+import subprocess
 import sys
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, "/srv")
-from app.services.customers import prepare_customer_batch  # noqa: E402
+from app.services.whatsapp import prepare_whatsapp_batch  # noqa: E402
 
 state = {"mode": "accept", "tts_calls": 0, "tts_requests": [], "uploads": [], "messages": []}
-AUDIO = b"ID3-whatsapp-transport-fixture"
+# Real, short tone: allows the actual FFmpeg converter to run without online TTS.
+AUDIO = subprocess.run(
+    [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=880:duration=0.25",
+        "-c:a",
+        "libmp3lame",
+        "-f",
+        "mp3",
+        "pipe:1",
+    ],
+    check=True,
+    capture_output=True,
+).stdout
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -38,19 +58,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {"ok": True})
         if self.path == "/customers/prepare":
             return self.respond(
-                200, {"customers": prepare_customer_batch(json.loads(body)["rows"])}
+                200, {"customers": prepare_whatsapp_batch(json.loads(body)["rows"])}
             )
         if self.path == "/tts":
             state["tts_calls"] += 1
             if state["mode"] == "tts_fail":
                 return self.respond(502, {"detail": "Test provider failure"})
             state["tts_requests"].append(json.loads(body))
+            audio = b"invalid-mp3" if state["mode"] == "conversion_fail" else AUDIO
             self.send_response(200)
             self.send_header("Content-Type", "audio/mpeg")
             self.send_header("Content-Disposition", 'attachment; filename="payment_reminder.mp3"')
-            self.send_header("Content-Length", str(len(AUDIO)))
+            self.send_header("Content-Length", str(len(audio)))
             self.end_headers()
-            self.wfile.write(AUDIO)
+            self.wfile.write(audio)
             return
         if self.headers.get("Authorization") != "Bearer local-whatsapp-test-only":
             return self.respond(401, {"error": {"message": "Test token rejected"}})
@@ -69,9 +90,29 @@ class Handler(BaseHTTPRequestHandler):
                     fields["filename"] = part.get_filename()
                     fields["mime_type"] = part.get_content_type()
             state["uploads"].append(fields)
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_streams",
+                    "-of",
+                    "json",
+                    "-i",
+                    "pipe:0",
+                ],
+                input=base64.b64decode(fields["file"]),
+                capture_output=True,
+                check=True,
+            )
+            fields["audio_stream"] = json.loads(probe.stdout)["streams"][0]
             return self.respond(200, {"id": "123456789"})
         if self.path.endswith("/messages"):
             payload = json.loads(body)
+            if state["mode"] == "rate_limit":
+                return self.respond(429, {"error": {"code": 130429, "message": "Test throttle"}})
+            if state["mode"] == "send_reject":
+                return self.respond(400, {"error": {"code": 131026, "message": "Test rejection"}})
             if state["mode"] == "send_fail":
                 return self.respond(500, {"error": {"message": "Test send failure"}})
             state["messages"].append(payload)
